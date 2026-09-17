@@ -81,7 +81,7 @@ export function OpsConsole() {
             <a className="btn small ghost" href={`${BASE}/ops/board?view=harvest`} target="_blank" rel="noreferrer">harvest board ↗</a>
             <a className="btn small ghost" href={`${BASE}/ops/board?view=finds`} target="_blank" rel="noreferrer">finds leaderboard ↗</a>
             <a className="btn small ghost" href={`${BASE}/ops/board?view=scores`} target="_blank" rel="noreferrer">scores leaderboard ↗</a>
-            <a className="btn small ghost" href={`${BASE}`} target="_blank" rel="noreferrer">participant app ↗</a>
+            <a className="btn small ghost" href={`${BASE}/`} target="_blank" rel="noreferrer">participant app ↗</a>
             <span className="grow" />
             {msg && <span className="notice small">{msg}</span>}
             <button className="linkbtn" onClick={async () => { await api("/api/ops/logout", { body: {} }); location.reload(); }}>sign out</button>

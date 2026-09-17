@@ -7,19 +7,19 @@ Built from `warung-kita-spec.md`. Next.js 16 (App Router) + SQLite (`better-sqli
 ```bash
 cp .env.example .env      # fill in Azure (and ILMU) credentials, set ADMIN_PASSWORD
 npm install
-npm run dev               # http://localhost:3100/warung-kita
+npm run dev               # http://localhost:3100
 ```
 
-- Participant app: `/warung-kita`
-- Admin console: `/warung-kita/ops` (password = `ADMIN_PASSWORD`)
-- Projector: `/warung-kita/ops/board?view=harvest` and `?view=scores`
+- Participant app: `/`
+- Admin console: `/ops` (password = `ADMIN_PASSWORD`)
+- Projector: `/ops/board?view=harvest`, `?view=finds` and `?view=scores`
 
 **No Azure keys?** The app switches to an **offline mock** by itself: the bot, marker, checks and sorting
 all run on keyword rules that copy the failures the day needs (discounts, "Premium Plus", "yes to
 Tutong", leaking the prompt). It's for clicking through the flow, not for tuning. When Azure keys are
 set, the mock drops out of the menu unless `ENABLE_MOCK=1`.
 
-## Deploy (demo.siapstudio.my)
+## Deploy (warung-kita.siapstudio.my)
 
 ```bash
 docker compose up -d --build      # listens on 127.0.0.1:3000, DB in ./data
@@ -28,7 +28,7 @@ docker compose up -d --build      # listens on 127.0.0.1:3000, DB in ./data
 nginx:
 
 ```nginx
-location /warung-kita {
+location / {
     proxy_pass http://127.0.0.1:3000;
     proxy_set_header Host $host;
     proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
@@ -43,7 +43,7 @@ rules → 20/20). `npm run seed` does the same thing ahead of time.
 ## How the presenter uses it
 
 1. Sign in at `/ops` in your browser.
-2. In the **same browser**, open `/warung-kita` and type the name `presenter`. Nobody can use that name
+2. In the **same browser**, open `/` and type the name `presenter`. Nobody can use that name
    without the admin sign-in.
 3. **Rehearsal:** turn *cached demo results* off, run the tests for real, then use
    **save as recording** in the console. Delete the made-up recordings once you have real ones.
@@ -66,7 +66,7 @@ real users aren't you), each with a one-line definition, plus an optional "why".
 English and Malay (Indonesian counts as Malay); any other language, or switching language, is a find. **My reports** sits beside the app
 (a card on the right; a tab on phones) with their reports, which of the four targets they've hit, and
 the room leaderboard (targets hit, then total reports). The app itself stays clean.
-Projector: `/warung-kita/ops/board?view=finds`. The harvest tiles count reports; the presenter can
+Projector: `/ops/board?view=finds`. The harvest tiles count reports; the presenter can
 change or clear a report in the live feed.
 
 **Activity 2 — the assistant studio.** *Live* (what customers get: the original bot until someone

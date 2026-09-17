@@ -1,6 +1,7 @@
 "use client";
 
-export const BASE = "/warung-kita";
+/** The app is served at the domain root (warung-kita.siapstudio.my). Set a prefix here if it ever moves under a path. */
+export const BASE = "";
 const NAME_KEY = "wk_name";
 
 export const storedName = () => {
@@ -14,7 +15,7 @@ export class ApiError extends Error {
   constructor(message: string, public status: number) { super(message); }
 }
 
-/** fetch() under the basePath, with the localStorage name as a fallback identity. JSON in, JSON out. */
+/** fetch() with the localStorage name as a fallback identity. JSON in, JSON out. */
 export async function api<T = unknown>(path: string, init?: { method?: string; body?: unknown }): Promise<T> {
   const headers: Record<string, string> = { "content-type": "application/json" };
   const name = storedName();

@@ -6,7 +6,7 @@ export const dynamic = "force-dynamic";
 
 export function GET(req: NextRequest) {
   return withAdmin(req, async () => {
-    const url = process.env.PUBLIC_URL || "https://demo.siapstudio.my/warung-kita";
+    const url = process.env.PUBLIC_URL || "https://warung-kita.siapstudio.my";
     const svg = await QRCode.toString(url, { type: "svg", margin: 1, width: 512 });
     return new Response(svg, { headers: { "content-type": "image/svg+xml" } });
   });
