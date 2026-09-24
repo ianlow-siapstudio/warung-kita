@@ -6,7 +6,7 @@ import { api, storeName, storedName } from "@/lib/client";
 import { CustomerApp } from "./CustomerApp";
 import { Studio } from "./Studio";
 
-type Phase = "closed" | "activity1" | "demo" | "activity2" | "wrapup";
+type Phase = "closed" | "activity1" | "activity2" | "wrapup";
 type State = { phase: Phase; me: { name: string; presenter: boolean } | null };
 
 export function ParticipantApp() {
@@ -44,7 +44,7 @@ export function ParticipantApp() {
   };
 
   const LABEL: Record<Phase, string> = {
-    closed: "Workshop", activity1: "Workshop · Activity 1", demo: "Workshop · Demo", activity2: "Workshop · Activity 2", wrapup: "Workshop · Wrap-up",
+    closed: "Workshop", activity1: "Workshop · Activity 1", activity2: "Workshop · Activity 2", wrapup: "Workshop · Wrap-up",
   };
   // The exercise lives in a dark strip, kept visibly apart from the pretend product underneath.
   const header = (instruction: string) => (
@@ -63,16 +63,15 @@ export function ParticipantApp() {
       return (
         <>
           {header(copy.closed)}
-          <div className="center-card"><div className="card"><h1>{copy.closed}</h1><p className="muted">Keep this page open — it will change by itself.</p></div></div>
+          <div className="center-card"><div className="card"><h1>Warung Kita</h1><p className="muted">Keep this page open — it will change by itself.</p></div></div>
         </>
       );
     case "activity1":
       return <CustomerApp key="a1" name={state.me.name} onSignOut={signOut} />;
-    case "demo":
     case "activity2":
-      return <Studio key="studio" phase={state.phase} presenter={state.me.presenter} header={header} />;
+      return <Studio key="studio" phase="activity2" header={header} />;
     case "wrapup":
-      return <Studio key="wrap" phase="wrapup" presenter={state.me.presenter} header={header} />;
+      return <Studio key="wrap" phase="wrapup" header={header} />;
   }
 }
 

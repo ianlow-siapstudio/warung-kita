@@ -1,6 +1,10 @@
 // What changed between two runs, in plain words. Shared by the server (score history) and the
 // browser (the "changed since your last run" line) — so no server-only imports here.
 
+import { KNOWLEDGE } from "@/config/restaurant";
+
+const knowledgeLabel = (k: string) => (KNOWLEDGE.find((x) => x.key === k)?.label ?? k).toLowerCase();
+
 export type Snapshot = {
   config: { system_prompt: string; question_check: boolean; answer_check: boolean; one_job: boolean; fallback_text: string; temperature?: number; strictness?: string;
     knowledge?: string[]; input_rules?: string[]; output_rules?: string[]; topics?: string[] };
@@ -16,8 +20,8 @@ export function describeChanges(prev: Snapshot, next: Snapshot, questionKeys: st
   if (norm(a.system_prompt) !== norm(b.system_prompt)) out.push("rewrote the prompt");
   const added = (b.knowledge ?? []).filter((k) => !(a.knowledge ?? []).includes(k));
   const removed = (a.knowledge ?? []).filter((k) => !(b.knowledge ?? []).includes(k));
-  if (added.length) out.push(`gave it ${added.join(", ")}`);
-  if (removed.length) out.push(`took away ${removed.join(", ")}`);
+  if (added.length) out.push(`gave it ${added.map(knowledgeLabel).join(", ")}`);
+  if (removed.length) out.push(`took away ${removed.map(knowledgeLabel).join(", ")}`);
   const listChanged = (x?: string[], y?: string[]) => (x ?? []).map(norm).join("|") !== (y ?? []).map(norm).join("|");
   if (listChanged(a.input_rules, b.input_rules)) out.push("changed input check rules");
   if (listChanged(a.output_rules, b.output_rules)) out.push("changed output check rules");

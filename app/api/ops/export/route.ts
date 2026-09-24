@@ -19,7 +19,7 @@ export function GET(req: NextRequest) {
            FROM messages m JOIN conversations c ON c.id=m.conversation_id JOIN participants p ON p.id=c.participant_id ORDER BY m.id`
         ).all()
       : db().prepare(
-          `SELECT r.id AS run, p.name, r.phase, r.bot_model, r.runs_per_test, r.cached, r.total, r.max, res.question_key, res.iteration,
+          `SELECT r.id AS run, p.name, r.phase, r.bot_model, r.runs_per_test, r.total, r.max, res.question_key, res.iteration,
              res.pass, res.failed_rules, res.reason, res.blocked_by, res.answer, res.original_answer, r.config_snapshot, r.rules_snapshot,
              datetime(res.created_at/1000,'unixepoch') AS created_utc
            FROM results res JOIN runs r ON r.id=res.run_id JOIN participants p ON p.id=r.participant_id ORDER BY res.id`

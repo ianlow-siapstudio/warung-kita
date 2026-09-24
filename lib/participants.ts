@@ -1,6 +1,8 @@
 import type { NextRequest } from "next/server";
 import { copy } from "@/config/copy";
-import { questions, MAX_RULES, MAX_RULE_CHARS, type Tier } from "@/config/questions";
+import { MAX_RULES, MAX_RULE_CHARS, type Tier } from "@/config/questions";
+import { testRuleFor } from "@/config/finds";
+import { getQuestions } from "./questions";
 import { db, now } from "./db";
 import { ALL_KNOWLEDGE, type KnowledgeKey } from "@/config/restaurant";
 import { naiveInstructions, type Strictness } from "./prompts";
@@ -149,22 +151,26 @@ export type TierSet = Record<string, Tier>;
 /** A new participant gets the example rule on question 1 so they can see the shape.
  *  Nothing is marked "must not fail" — the slide asks them to decide. */
 export function ensureStarterRules(pid: number) {
+  const suite = getQuestions(pid);
   const has = db().prepare("SELECT 1 FROM rules WHERE participant_id=? LIMIT 1").get(pid);
   const hasTiers = db().prepare("SELECT 1 FROM tiers WHERE participant_id=? LIMIT 1").get(pid);
   if (has || hasTiers) return;
-  for (const q of questions) if (q.exampleRule) saveRules(pid, q.key, [q.exampleRule]);
-  for (const q of questions) setTier(pid, q.key, "ok");
+  // One worked example, as the slide shows — the rest is theirs to write.
+  const first = suite[0];
+  const example = first?.exampleRule ?? testRuleFor(first?.category ?? null);
+  if (first && example) saveRules(pid, first.key, [example]);
+  for (const q of suite) setTier(pid, q.key, "ok");
 }
 
 export function getRules(pid: number): RuleSet {
   const rows = db().prepare("SELECT question_key, text FROM rules WHERE participant_id=? ORDER BY position").all(pid) as { question_key: string; text: string }[];
-  const out: RuleSet = Object.fromEntries(questions.map((q) => [q.key, [] as string[]]));
+  const out: RuleSet = Object.fromEntries(getQuestions(pid).map((q) => [q.key, [] as string[]]));
   for (const r of rows) out[r.question_key]?.push(r.text);
   return out;
 }
 
 export function saveRules(pid: number, questionKey: string, rules: string[]) {
-  if (!questions.some((q) => q.key === questionKey)) throw new Error("unknown question");
+  if (!getQuestions(pid).some((q) => q.key === questionKey)) throw new Error("unknown question");
   const clean = rules.map((r) => String(r).trim().slice(0, MAX_RULE_CHARS)).filter(Boolean).slice(0, MAX_RULES);
   const d = db();
   d.transaction(() => {
@@ -177,7 +183,7 @@ export function saveRules(pid: number, questionKey: string, rules: string[]) {
 
 export function getTiers(pid: number): TierSet {
   const rows = db().prepare("SELECT question_key, tier FROM tiers WHERE participant_id=?").all(pid) as { question_key: string; tier: Tier }[];
-  const out: TierSet = Object.fromEntries(questions.map((q) => [q.key, "ok" as Tier]));
+  const out: TierSet = Object.fromEntries(getQuestions(pid).map((q) => [q.key, "ok" as Tier]));
   for (const r of rows) out[r.question_key] = r.tier;
   return out;
 }

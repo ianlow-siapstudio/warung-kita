@@ -6,7 +6,7 @@ import { getPhase } from "@/lib/settings";
 export async function PUT(req: NextRequest) {
   const patch = await body<BotConfig>(req);
   return withParticipant(req, (p) => {
-    if (getPhase() === "wrapup") return fail("The workbench is closed now.", 403);
+    if (getPhase() === "wrapup") return fail("Activity 2 is closed now.", 403);
     const clean: Partial<BotConfig> = {};
     if (typeof patch.system_prompt === "string") clean.system_prompt = patch.system_prompt;
     if (typeof patch.fallback_text === "string") clean.fallback_text = patch.fallback_text;

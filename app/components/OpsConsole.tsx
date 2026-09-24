@@ -4,29 +4,26 @@ import { useCallback, useEffect, useState } from "react";
 import { FIND_GROUPS, findGroupOf, typesInGroup } from "@/config/finds";
 import { api, BASE, time } from "@/lib/client";
 
-type Strip = { calls: number; errors: number; errorRate: number; p95: number; filtered: number };
+type Strip = { calls: number; errors: number; throttled: number; garbled: number; errorRate: number; p95: number; filtered: number };
 type Overview = {
   phase: string;
   runsPerTest: number;
-  cachedDemo: boolean;
   botModel: string;
   botChoices: { name: string; label: string; model: string; configured: boolean; strip: Strip }[];
-  marker: string;
+  markerModel: string;
+  markerChoices: { name: string; label: string; model: string }[];
   banner: string | null;
   stats: {
     online: number; participants: number; messages: number; runs: number; calls: number; cost: number; p95: number;
-    errors: number; filterBlocks: number; markerErrors: number; queue: { active: number; waiting: number };
+    errors: number; throttled: number; garbled: number; filterBlocks: number; markerErrors: number; queue: { active: number; waiting: number; holdingOff: number; limit: number; max: number };
   };
   participants: { id: number; name: string; name_key: string; last_seen: number | null; runs: number; messages: number }[];
-  cached: { id: number; provider: string; label: string; created_at: number }[];
-  presenterRuns: { id: number; total: number; max: number; bot_model: string; started_at: number; cached: number }[];
 };
 type FeedItem = { id: number; name: string; question: string | null; reply: string; category: string | null; report_note: string | null; pinned: number; blocked_by: string | null; created_at: number };
 
 const PHASES: [string, string][] = [
   ["closed", "closed"],
   ["activity1", "activity 1 · break it"],
-  ["demo", "demo"],
   ["activity2", "activity 2 · test it / fix it"],
   ["wrapup", "wrap-up"],
 ];
@@ -103,9 +100,11 @@ export function OpsConsole() {
             <div><b>${ov.stats.cost.toFixed(3)}</b><span>est. cost</span></div>
             <div><b>{ov.stats.p95} ms</b><span>p95 (10 min)</span></div>
             <div><b style={{ color: ov.stats.errors ? "var(--fail)" : undefined }}>{ov.stats.errors}</b><span>errors</span></div>
+            <div><b style={{ color: ov.stats.throttled ? "var(--warn)" : undefined }}>{ov.stats.throttled}</b><span>rate limited</span></div>
+            <div><b style={{ color: ov.stats.garbled ? "var(--warn)" : undefined }}>{ov.stats.garbled}</b><span>garbled · retried</span></div>
             <div><b>{ov.stats.filterBlocks}</b><span>Azure filter blocks</span></div>
             <div><b style={{ color: ov.stats.markerErrors ? "var(--fail)" : undefined }}>{ov.stats.markerErrors}</b><span>marker errors</span></div>
-            <div><b>{ov.stats.queue.active}/{ov.stats.queue.waiting}</b><span>queue active/waiting</span></div>
+            <div><b>{ov.stats.queue.active}/{ov.stats.queue.waiting}</b><span>queue active/waiting{ov.stats.queue.limit < ov.stats.queue.max ? ` · eased to ${ov.stats.queue.limit} of ${ov.stats.queue.max}` : ""}{ov.stats.queue.holdingOff > 0 ? " · holding off" : ""}</span></div>
           </div>
         </div>
 
@@ -125,15 +124,26 @@ export function OpsConsole() {
                   model/deployment: {p.model}{pings[p.name] && <> · <strong style={{ color: pings[p.name].startsWith("ok") ? "var(--pass)" : "var(--fail)" }}>{pings[p.name]}</strong></>}
                 </div>
                 <div className="tiny" style={{ marginTop: 2, fontVariantNumeric: "tabular-nums" }}>
-                  last 10 min: {p.strip.calls} calls · <span style={{ color: p.strip.errors ? "var(--fail)" : undefined }}>{p.strip.errors} errors</span> · p95 {p.strip.p95} ms · {p.strip.filtered} filter blocks
+                  last 10 min: {p.strip.calls} calls · <span style={{ color: p.strip.errors ? "var(--fail)" : undefined }}>{p.strip.errors} errors</span> · <span style={{ color: p.strip.throttled ? "var(--warn)" : undefined }}>{p.strip.throttled} rate limited</span> · <span style={{ color: p.strip.garbled ? "var(--warn)" : undefined }}>{p.strip.garbled} garbled</span> · p95 {p.strip.p95} ms · {p.strip.filtered} filter blocks
                 </div>
               </div>
             ))}
-            <p className="small" style={{ marginBottom: 0 }}><strong>Marker model:</strong> {ov.marker} <span className="muted">(fixed)</span></p>
+            <p className="small" style={{ margin: "10px 0 4px" }}><strong>Marks the answers and runs the checks</strong></p>
+            <div className="row wrap">
+              {ov.markerChoices.map((m) => (
+                <label key={m.name} className="row" style={{ gap: 6 }}>
+                  <input type="radio" name="marker" checked={ov.markerModel === m.name} onChange={() => set({ markerModel: m.name })} />
+                  <span className="small">{m.label}</span>
+                </label>
+              ))}
+            </div>
+            <p className="tiny muted" style={{ marginBottom: 0 }}>
+              Marking with the same model you are testing is a weaker test — it tends to agree with itself.
+            </p>
           </section>
 
           <section className="panel">
-            <h2>Runs &amp; demo</h2>
+            <h2>Runs</h2>
             <label className="row">
               <span className="grow">Runs per test</span>
               <select className="select" style={{ width: 90 }} value={ov.runsPerTest} onChange={(e) => set({ runsPerTest: Number(e.target.value) })}>
@@ -142,31 +152,6 @@ export function OpsConsole() {
             </label>
             <p className="tiny muted">Bars: must-not-fail = {ov.runsPerTest}/{ov.runsPerTest}, others = {Math.ceil(ov.runsPerTest * 0.8)}/{ov.runsPerTest}.</p>
 
-            <label className="toggle" style={{ marginTop: 12 }}>
-              <input type="checkbox" checked={ov.cachedDemo} onChange={(e) => set({ cachedDemo: e.target.checked })} />
-              <span><strong>Use cached demo results</strong><span className="small muted">The presenter&apos;s Run replays a recording for the selected bot instead of calling the AI. Matches on rules; otherwise plays recordings in order.</span></span>
-            </label>
-
-            <h2 style={{ marginTop: 16 }}>Recordings</h2>
-            <table className="table">
-              <tbody>
-                {ov.cached.filter((c) => c.provider === ov.botModel).map((c) => (
-                  <tr key={c.id}>
-                    <td className="small">{c.label}</td>
-                    <td style={{ textAlign: "right" }}><button className="linkbtn" onClick={async () => { if (confirm("Delete this recording?")) { await api("/api/ops/cached", { body: { action: "delete", id: c.id } }); refresh(); } }}>delete</button></td>
-                  </tr>
-                ))}
-                {!ov.cached.some((c) => c.provider === ov.botModel) && <tr><td className="small muted">No recordings for this bot — the demo will run live.</td></tr>}
-              </tbody>
-            </table>
-            <p className="small" style={{ marginBottom: 4 }}>Save one of the presenter&apos;s finished runs as a recording:</p>
-            {ov.presenterRuns.length === 0 && <p className="tiny muted">No presenter runs yet. Sign in as <code>presenter</code> in this browser and run the tests.</p>}
-            {ov.presenterRuns.map((r) => (
-              <div key={r.id} className="row small" style={{ padding: "3px 0" }}>
-                <span className="grow">{time(r.started_at)} · {r.total}/{r.max} · <span className="badge model">{r.bot_model}</span>{r.cached ? " · (replay)" : ""}</span>
-                {!r.cached && <button className="btn small ghost" onClick={async () => { try { await api("/api/ops/cached", { body: { action: "record", runId: r.id } }); flash("Saved as recording."); refresh(); } catch (e) { flash((e as Error).message); } }}>save as recording</button>}
-              </div>
-            ))}
           </section>
 
           <section className="panel">
@@ -223,7 +208,7 @@ function ResetBox({ onDone }: { onDone: () => void }) {
     <div style={{ marginTop: 14, borderTop: "1px solid var(--line)", paddingTop: 10 }}>
       <strong>Reset</strong>
       <p className="tiny muted" style={{ margin: "2px 0 6px" }}>
-        {full ? "Wipes everything except the presenter and recordings: people, rules, settings per person, chats, runs, call log." : "Wipes chats, runs and results. Keeps people and their rules."}
+        {full ? "Wipes everything except the presenter: people, rules, settings per person, chats, runs, call log." : "Wipes chats, runs and results. Keeps people and their rules."}
       </p>
       <label className="row small"><input type="checkbox" checked={full} onChange={(e) => setFull(e.target.checked)} /> full reset</label>
       <div className="row" style={{ marginTop: 6 }}>

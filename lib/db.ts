@@ -53,6 +53,16 @@ CREATE TABLE IF NOT EXISTS rules (
   position INTEGER NOT NULL
 );
 
+CREATE TABLE IF NOT EXISTS questions (
+  participant_id INTEGER NOT NULL REFERENCES participants(id) ON DELETE CASCADE,
+  key TEXT NOT NULL,
+  text TEXT NOT NULL,
+  category TEXT,
+  source TEXT NOT NULL,
+  position INTEGER NOT NULL,
+  PRIMARY KEY (participant_id, key)
+);
+
 CREATE TABLE IF NOT EXISTS tiers (
   participant_id INTEGER NOT NULL REFERENCES participants(id) ON DELETE CASCADE,
   question_key TEXT NOT NULL,
@@ -68,7 +78,7 @@ CREATE TABLE IF NOT EXISTS runs (
   bot_model TEXT NOT NULL,
   config_snapshot TEXT NOT NULL,
   rules_snapshot TEXT NOT NULL,
-  cached INTEGER NOT NULL DEFAULT 0,
+  attacks_max INTEGER NOT NULL DEFAULT 0,
   status TEXT NOT NULL DEFAULT 'running',
   started_at INTEGER NOT NULL,
   finished_at INTEGER,
@@ -105,16 +115,6 @@ CREATE TABLE IF NOT EXISTS calls (
   created_at INTEGER NOT NULL
 );
 CREATE INDEX IF NOT EXISTS calls_time ON calls(created_at);
-
--- Recorded demo runs, replayed when "use cached demo results" is on. Survives every reset.
-CREATE TABLE IF NOT EXISTS cached_demo (
-  id INTEGER PRIMARY KEY AUTOINCREMENT,
-  provider TEXT NOT NULL,
-  rules_hash TEXT NOT NULL,
-  label TEXT NOT NULL,
-  data TEXT NOT NULL,
-  created_at INTEGER NOT NULL
-);
 `;
 
 type Global = typeof globalThis & { __wkDb?: Database.Database };
@@ -132,6 +132,8 @@ function migrate(d: Database.Database) {
     d.exec("UPDATE messages SET category=NULL WHERE category='fine'");
   }
   if (!cols.some((c) => c.name === "published_run_id")) d.exec("ALTER TABLE participants ADD COLUMN published_run_id INTEGER");
+  const runCols = d.prepare("PRAGMA table_info(runs)").all() as { name: string }[];
+  if (!runCols.some((c) => c.name === "attacks_max")) d.exec("ALTER TABLE runs ADD COLUMN attacks_max INTEGER NOT NULL DEFAULT 0");
   const configCols = d.prepare("PRAGMA table_info(config)").all() as { name: string }[];
   if (!configCols.some((c) => c.name === "temperature")) d.exec("ALTER TABLE config ADD COLUMN temperature REAL NOT NULL DEFAULT 0.5");
   if (!configCols.some((c) => c.name === "give_policies")) d.exec("ALTER TABLE config ADD COLUMN give_policies INTEGER NOT NULL DEFAULT 0");
@@ -139,6 +141,9 @@ function migrate(d: Database.Database) {
     if (!configCols.some((c) => c.name === col)) d.exec(`ALTER TABLE config ADD COLUMN ${col} TEXT NOT NULL DEFAULT '[]'`);
   }
   if (!configCols.some((c) => c.name === "strictness")) d.exec("ALTER TABLE config ADD COLUMN strictness TEXT NOT NULL DEFAULT 'balanced'");
+  // The recorded-demo replay is gone; older databases still carry its table and settings.
+  d.exec("DROP TABLE IF EXISTS cached_demo");
+  d.exec("DELETE FROM settings WHERE key IN ('cached_demo','cached_demo_cursor')");
   migrated = true;
 }
 
@@ -156,7 +161,8 @@ export function db(): Database.Database {
   d.exec(SCHEMA);
   // A run still marked running at boot was cut off by a restart — close it with what it has.
   d.prepare(
-    `UPDATE runs SET status='interrupted', finished_at=?, total=(SELECT COUNT(*) FROM results WHERE run_id=runs.id AND pass=1)
+    `UPDATE runs SET status='interrupted', finished_at=?,
+       total=(SELECT COUNT(*) FROM results WHERE run_id=runs.id AND pass=1 AND question_key NOT LIKE 'attack:%')
      WHERE status='running'`
   ).run(Date.now());
   migrate(d);

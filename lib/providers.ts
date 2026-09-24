@@ -135,9 +135,19 @@ export function providers(): Record<ProviderName, Provider> {
   return g.__wkProviders.list;
 }
 
-/** Everything that measures (marker, checks) stays on Azure. Offline mock only when Azure isn't set up. */
-export function measuringProvider(): ProviderName {
+/** The default for everything that measures (marker, checks, attack judge). Overridden by the admin's pick. */
+export function defaultMeasuringProvider(): ProviderName {
+  const env = process.env.MEASURING_PROVIDER as ProviderName | undefined;
+  if (env && providers()[env]?.configured) return env;
   return providers().azure.configured ? "azure" : "mock";
+}
+
+/** Which providers can be picked to do the measuring. */
+export function markerChoices(): ProviderName[] {
+  const all = providers();
+  const list = (["azure", "ilmu"] as ProviderName[]).filter((n) => all[n].configured);
+  if (!list.length || process.env.ENABLE_MOCK === "1") list.push("mock");
+  return list;
 }
 
 /** Which bot choices the admin dropdown offers. */

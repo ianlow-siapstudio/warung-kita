@@ -1,7 +1,7 @@
 import type { NextRequest } from "next/server";
 import { isAdmin } from "@/lib/auth";
 import { body, fail, json } from "@/lib/http";
-import { createParticipant, ensureStarterRules, findByName, NAME_COOKIE, PRESENTER, nameKey, touch } from "@/lib/participants";
+import { createParticipant, findByName, NAME_COOKIE, PRESENTER, nameKey, touch } from "@/lib/participants";
 
 export async function POST(req: NextRequest) {
   const { name = "", confirm = false } = await body<{ name: string; confirm: boolean }>(req);
@@ -15,7 +15,6 @@ export async function POST(req: NextRequest) {
     return json({ status: "exists", name: p.name });
   }
   if (!p) p = createParticipant(clean);
-  ensureStarterRules(p.id);
   touch(p);
 
   const res = json({ status: "ok", name: p.name });
