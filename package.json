@@ -7,7 +7,8 @@
     "build": "next build",
     "start": "next start -p 3100",
     "seed": "tsx scripts/seed.ts",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "marker-check": "node --env-file=.env ./node_modules/.bin/tsx scripts/marker-check.ts"
   },
   "dependencies": {
     "better-sqlite3": "^13.0.3",

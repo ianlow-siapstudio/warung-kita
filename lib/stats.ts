@@ -1,11 +1,12 @@
-import { questions } from "@/config/questions";
+import { copy } from "@/config/copy";
+
 import { db } from "./db";
 import { PRESENTER, describeConfig, type BotConfig } from "./participants";
-import { FIND_GROUPS, FIND_TYPES, findGroupOf, isFindType } from "@/config/finds";
-import { botChoices, measuringProvider, providers, type ProviderName } from "./providers";
+import { FIND_GROUPS, FIND_TYPES, isFindType, typesInGroup } from "@/config/finds";
+import { botChoices, markerChoices, providers, type ProviderName } from "./providers";
 import { queue } from "./queue";
 import { barFor, type RulesSnapshot } from "./runs";
-import { cachedDemoOn, getBotModel, getPhase, getRunsPerTest, getSetting } from "./settings";
+import { getBotModel, getPhase, getRunsPerTest, getSetting, measuringProvider } from "./settings";
 
 // gpt-4o-mini list price, USD per million tokens. Good enough for an estimate.
 const PRICE_IN = 0.15, PRICE_OUT = 0.6;
@@ -17,11 +18,16 @@ const p95 = (values: number[]) => {
 };
 
 export function providerStrip(name: ProviderName, sinceMs = 10 * 60_000) {
-  const rows = db().prepare("SELECT ms, ok, filtered FROM calls WHERE provider=? AND created_at>?").all(name, Date.now() - sinceMs) as { ms: number; ok: number; filtered: number }[];
-  const errors = rows.filter((r) => !r.ok).length;
+  const rows = db().prepare("SELECT ms, ok, filtered, error FROM calls WHERE provider=? AND created_at>?").all(name, Date.now() - sinceMs) as { ms: number; ok: number; filtered: number; error: string | null }[];
+  // Being throttled is a queue problem, not a broken provider — count the two apart.
+  const throttled = rows.filter((r) => !r.ok && r.error?.startsWith("429")).length;
+  const garbled = rows.filter((r) => !r.ok && r.error?.startsWith("unreadable")).length;
+  const errors = rows.filter((r) => !r.ok && !r.error?.startsWith("429") && !r.error?.startsWith("unreadable")).length;
   return {
     calls: rows.length,
     errors,
+    throttled,
+    garbled,
     errorRate: rows.length ? errors / rows.length : 0,
     p95: p95(rows.filter((r) => r.ok).map((r) => r.ms)),
     filtered: rows.filter((r) => r.filtered).length,
@@ -41,7 +47,6 @@ export function overview() {
   return {
     phase: getPhase(),
     runsPerTest: getRunsPerTest(),
-    cachedDemo: cachedDemoOn(),
     botModel: bot,
     botChoices: botChoices().map((name) => ({
       name,
@@ -50,12 +55,13 @@ export function overview() {
       configured: all[name].configured,
       strip: providerStrip(name),
     })),
-    marker: measuringProvider() === "azure"
-      ? `Azure · deployment ${all.azure.model}`
-      : "Offline mock — Azure isn't configured",
+    markerModel: measuringProvider(),
+    markerChoices: markerChoices().map((name) => ({ name, label: all[name].label, model: all[name].model })),
     banner: botStrip.calls >= 5 && botStrip.errorRate >= 0.2
       ? `${all[bot].label} is failing: ${botStrip.errors} of ${botStrip.calls} calls in the last 10 minutes errored.`
-      : null,
+      : botStrip.throttled >= 20
+        ? `${all[bot].label} is rate limiting us: ${botStrip.throttled} calls in the last 10 minutes were told to slow down. Tests still finish, but they queue. Lower MAX_CONCURRENT_CALLS or raise the deployment's tokens-per-minute.`
+        : null,
     stats: {
       online: one<{ n: number }>("SELECT COUNT(*) n FROM participants WHERE last_seen>?", Date.now() - 30_000).n,
       participants: one<{ n: number }>("SELECT COUNT(*) n FROM participants WHERE name_key<>?", PRESENTER).n,
@@ -64,9 +70,12 @@ export function overview() {
       calls: calls.n,
       cost: (calls.pin * PRICE_IN + calls.pout * PRICE_OUT) / 1_000_000,
       p95: p95(recentMs),
-      errors: one<{ n: number }>("SELECT COUNT(*) n FROM calls WHERE ok=0").n,
+      errors: one<{ n: number }>("SELECT COUNT(*) n FROM calls WHERE ok=0 AND COALESCE(error,'') NOT LIKE '429%' AND COALESCE(error,'') NOT LIKE 'unreadable%'").n,
+      throttled: one<{ n: number }>("SELECT COUNT(*) n FROM calls WHERE ok=0 AND error LIKE '429%'").n,
+      // Answered 200 with a truncated or garbled body, then retried. Normal on ILMU; not a fault.
+      garbled: one<{ n: number }>("SELECT COUNT(*) n FROM calls WHERE ok=0 AND error LIKE 'unreadable%'").n,
       filterBlocks: one<{ n: number }>("SELECT COUNT(*) n FROM calls WHERE filtered=1").n,
-      markerErrors: one<{ n: number }>("SELECT COUNT(*) n FROM results WHERE reason='marker error'").n,
+      markerErrors: one<{ n: number }>("SELECT COUNT(*) n FROM results WHERE reason=?", copy.markerFailed).n,
       queue: queue.stats,
     },
     participants: d.prepare(
@@ -75,11 +84,6 @@ export function overview() {
         (SELECT COUNT(*) FROM messages m JOIN conversations c ON c.id=m.conversation_id WHERE c.participant_id=p.id AND m.role='user') messages
        FROM participants p ORDER BY p.name_key`
     ).all(),
-    cached: d.prepare("SELECT id, provider, label, created_at FROM cached_demo ORDER BY provider, id").all(),
-    presenterRuns: d.prepare(
-      `SELECT r.id, r.total, r.max, r.bot_model, r.started_at, r.cached FROM runs r JOIN participants p ON p.id=r.participant_id
-       WHERE p.name_key=? AND r.status='done' ORDER BY r.id DESC LIMIT 5`
-    ).all(PRESENTER),
   };
 }
 
@@ -101,12 +105,13 @@ export function harvest() {
        WHERE m.role='assistant' AND c.phase='activity1' AND m.category IS NOT NULL GROUP BY m.category`
     ).all() as { category: string; n: number }[]).map((r) => [r.category, r.n])
   );
+  // One tile per group (the slide's four), each listing its targets — the presenter can +1 any target.
+  const countOf = (key: string) => (counts[key] ?? 0) + (Number(getSetting(`tile_adjust_${key}`)) || 0);
   return {
-    tiles: FIND_GROUPS.map((g) => ({
-      key: g.key,
-      label: g.label,
-      count: Object.entries(counts).filter(([k]) => findGroupOf(k) === g.key).reduce((s, [, n]) => s + n, 0) + (Number(getSetting(`tile_adjust_${g.key}`)) || 0),
-    })),
+    tiles: FIND_GROUPS.map((g) => {
+      const types = typesInGroup(g.key).map((t) => ({ key: t.key, label: t.label, short: t.short, count: countOf(t.key) }));
+      return { key: g.key, label: g.label, count: types.reduce((s, t) => s + t.count, 0), types };
+    }),
     pinned: feed(500).filter((m) => (m as { pinned: number }).pinned),
   };
 }
@@ -128,9 +133,10 @@ export function leaderboard() {
     // Did the latest run clear the bar on every must-not-fail question?
     const snap = JSON.parse(latest.rules_snapshot) as RulesSnapshot;
     const passes = d.prepare("SELECT question_key, SUM(pass) n FROM results WHERE run_id=? GROUP BY question_key").all(latest.id) as { question_key: string; n: number }[];
-    const must = questions.filter((q) => snap.tiers[q.key] === "must");
+    // Everyone has their own suite now, so read the keys off the run that produced these results.
+    const must = (snap.questions ?? []).map((q) => q.key).filter((k) => snap.tiers[k] === "must");
     const mustMet = must.length
-      ? must.every((q) => (passes.find((x) => x.question_key === q.key)?.n ?? 0) >= barFor("must", latest.runs_per_test))
+      ? must.every((k) => (passes.find((x) => x.question_key === k)?.n ?? 0) >= barFor("must", latest.runs_per_test))
       : null;
     rows.push({
       id: p.id,
@@ -143,10 +149,13 @@ export function leaderboard() {
       controls: describeConfig(JSON.parse(latest.config_snapshot) as BotConfig),
       models: [...new Set(runs.map((r) => r.bot_model))],
       mustMet,
-      // "v3 · 19/20" when they published a version to customers.
+      // "v3 · 19/20" when they published a version to customers. The version number counts every
+      // run they started, so it matches the v-number they see in their own studio.
       shipped: (() => {
-        const i = runs.findIndex((r) => r.id === p.published_run_id);
-        return i < 0 ? null : `v${i + 1} · ${runs[i].total}/${runs[i].max}`;
+        const run = runs.find((r) => r.id === p.published_run_id);
+        if (!run) return null;
+        const v = (d.prepare("SELECT COUNT(*) n FROM runs WHERE participant_id=? AND id<=?").get(p.id, run.id) as { n: number }).n;
+        return `v${v} · ${run.total}/${run.max}`;
       })(),
     });
   }

@@ -2,8 +2,11 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { blockedLabel, copy } from "@/config/copy";
-import { FIND_TYPES } from "@/config/finds";
+import { FIND_TYPES, testRuleFor } from "@/config/finds";
 import type { Question, Tier } from "@/config/questions";
+
+/** A test: a real message someone reported in Activity 1, or one of the deck's four as a fallback. */
+type TestQuestion = Question & { category: string | null; source: "mine" | "room" | "deck" };
 import { api, time } from "@/lib/client";
 import { botChanges, describeChanges, type Snapshot } from "@/lib/diff";
 import { barFor, shipGate } from "@/lib/gate";
@@ -15,7 +18,7 @@ type AttackDef = { key: string; target: string; message: string; failsIf: string
 type Workspace = {
   phase: string;
   runsPerTest: number;
-  questions: Question[];
+  questions: TestQuestion[];
   limits: { maxRules: number; maxChars: number };
   config: Config;
   rules: Record<string, string[]>;
@@ -24,8 +27,9 @@ type Workspace = {
   facts: string;
   knowledgeSections: { key: string; label: string; text: string }[];
   attacks: AttackDef[];
+  attackRuns: number;
+  foundInActivity1: string[];
   history: HistoryRow[];
-  lastRun: Snapshot | null;
   activeRunId: number | null;
   latestRunId: number | null;
   publishedRunId: number | null;
@@ -36,6 +40,8 @@ type Run = {
   id: number; status: string; runs_per_test: number; bot_model: string; total: number; max: number; done: number; config: Config;
   summary: string; rules: Record<string, string[]>; tiers: Record<string, Tier>; results: Result[]; queuePosition: number; started_at: number;
   attacks_held: number; attacks_max: number; total_tasks: number;
+  /** The suite as it was for this run — older runs can have had different tests. */
+  questions: TestQuestion[];
 };
 const targetLabel = (t: string) => FIND_TYPES.find((f) => f.key === t)?.short ?? t;
 type Header = (instruction: string) => React.ReactNode;
@@ -47,8 +53,8 @@ const versionOf = (ws: Workspace, runId: number | null) => {
   return i < 0 ? null : i + 1;
 };
 
-/** Activity 2 (and the demo, and wrap-up): the owner's assistant studio. */
-export function Studio({ phase, presenter, header }: { phase: "demo" | "activity2" | "wrapup"; presenter: boolean; header: Header }) {
+/** Activity 2 and wrap-up: the owner's assistant studio. */
+export function Studio({ phase, header }: { phase: "activity2" | "wrapup"; header: Header }) {
   const [ws, setWs] = useState<Workspace | null>(null);
   const [latest, setLatest] = useState<Run | null>(null);
   const [shown, setShown] = useState<Run | null>(null);
@@ -67,7 +73,7 @@ export function Studio({ phase, presenter, header }: { phase: "demo" | "activity
       setWs((prev) =>
         full || !prev
           ? w
-          : { ...prev, history: w.history, lastRun: w.lastRun, activeRunId: w.activeRunId, latestRunId: w.latestRunId, runsPerTest: w.runsPerTest, publishedRunId: w.publishedRunId }
+          : { ...prev, history: w.history, activeRunId: w.activeRunId, latestRunId: w.latestRunId, runsPerTest: w.runsPerTest, publishedRunId: w.publishedRunId }
       );
       return w;
     } catch (e) {
@@ -96,7 +102,6 @@ export function Studio({ phase, presenter, header }: { phase: "demo" | "activity
   }, [running, latest?.id, loadWorkspace]); // eslint-disable-line react-hooks/exhaustive-deps
 
   if (!ws) return <>{header(copy.testIt.lead)}<div className="center-card muted">{loadError || "Loading…"}</div></>;
-  if (phase === "demo" && !presenter) return <WatchView ws={ws} header={header} />;
 
   const pickRun = async (id: number) => {
     if (id === latest?.id) return setShown(null);
@@ -129,8 +134,25 @@ function StudioBench({
   ws: Workspace; setWs: React.Dispatch<React.SetStateAction<Workspace | null>>; header: Header;
   latest: Run | null; shown: Run | null; running: boolean; onPickRun: (id: number) => void; onStarted: (id: number) => void;
 }) {
-  const [pane, setPane] = useState<"app" | "fix" | "test">("test");
-  const [middle, setMiddle] = useState<"tests" | "results" | "compare">(ws.history.length ? "results" : "tests");
+  // Round 1 is "test it", round 2 is "fix it". `pane` only matters on a phone, where the customer
+  // app and the admin portal can't sit side by side.
+  const tested = ws.history.some((h) => h.status !== "running");
+  const [pane, setPane] = useState<"app" | "portal">("portal");
+  // On a laptop the customer app is a panel you can fold away: it is reference, not the work, and
+  // folding it gives the tests and the gate room to sit side by side. Remembered per device.
+  const [appOpen, setAppOpen] = useState(true);
+  useEffect(() => {
+    try { setAppOpen(localStorage.getItem("wk-app") !== "closed"); } catch {}
+  }, []);
+  const toggleApp = () => {
+    setAppOpen((open) => {
+      try { localStorage.setItem("wk-app", open ? "closed" : "open"); } catch {}
+      return !open;
+    });
+  };
+  const [step, setStep] = useState<"test" | "fix">(tested ? "fix" : "test");
+  const [middle, setMiddle] = useState<"results" | "compare">("results");
+  const goTo = (s: "test" | "fix") => { setStep(s); setPane("portal"); };
   const [drafts, setDrafts] = useState<Record<string, string[]>>(() => ws.rules);
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
@@ -170,7 +192,7 @@ function StudioBench({
       const r = await api<{ runId: number }>("/api/runs", { body: {} });
       onStarted(r.runId);
       setMiddle("results");
-      setPane("test");
+      setPane("portal");
     } catch (e) {
       setError((e as Error).message);
     } finally {
@@ -190,16 +212,16 @@ function StudioBench({
 
   return (
     <>
-      {header(ws.history.length ? copy.fixIt.lead : copy.testIt.lead)}
+      {header(step === "test" ? copy.testIt.lead : copy.fixIt.lead)}
       <nav className="studio-tabs" aria-label="Studio">
         <button className={pane === "app" ? "on" : ""} onClick={() => setPane("app")}>Customer app</button>
-        <button className={pane === "fix" ? "on" : ""} onClick={() => setPane("fix")}>Fix it</button>
-        <button className={pane === "test" ? "on" : ""} onClick={() => setPane("test")}>Test it</button>
+        <button className={pane === "portal" && step === "test" ? "on" : ""} onClick={() => goTo("test")}>1 · Test it</button>
+        <button className={pane === "portal" && step === "fix" ? "on" : ""} disabled={!tested} onClick={() => goTo("fix")}>2 · Fix it</button>
       </nav>
 
-      <div className="studio">
+      <div className={`studio ${appOpen ? "app-open" : "app-collapsed"}`}>
         {/* Left: what the customer sees — the real app, answering with this draft. */}
-        <section className={`preview ${pane !== "app" ? "hide-narrow" : ""}`}>
+        <section className={`preview ${pane === "portal" ? "hide-narrow" : ""}`}>
           <div className="preview-label">
             <strong>Customer app · your draft</strong>
             <span>Only you see the draft. Customers still get {liveV ? `v${liveV}` : "the original bot"}.</span>
@@ -212,6 +234,9 @@ function StudioBench({
         {/* Right: the owner's admin portal. */}
         <section className={`portal ${pane === "app" ? "hide-narrow" : ""}`}>
           <div className="studio-bar">
+            <button className="app-toggle" onClick={toggleApp} aria-pressed={appOpen} title={appOpen ? "Fold the customer app away" : "Show the customer app"}>
+              {appOpen ? "◂" : "▸"} Customer app
+            </button>
             <div className="studio-name">Warung Kita · Admin</div>
             <div className="env-pills">
               <span className="env live"><i />Live · {liveV ? `v${liveV}` : "original bot"}</span>
@@ -227,45 +252,43 @@ function StudioBench({
             </div>
           </div>
 
+          {/* Two rounds, in order: measure it, then change it. Step 2 stays shut until a test has run. */}
+          <nav className="steps-nav" aria-label="Rounds">
+            <button className={step === "test" ? "on" : ""} onClick={() => goTo("test")}>
+              <span className="step-n">1</span>
+              <span><strong>Test it</strong><span>Write what a good answer must do, then run it.</span></span>
+            </button>
+            <button className={step === "fix" ? "on" : ""} disabled={!tested} onClick={() => goTo("fix")}>
+              <span className="step-n">2</span>
+              <span><strong>Fix it</strong><span>{tested ? "Change the bot, then run the same tests again." : "Locked until you have run the tests once."}</span></span>
+            </button>
+          </nav>
+
           <div className="portal-grid">
-            <section className={`panel ${pane !== "fix" ? "hide-narrow" : ""}`}>
-              <FixItPanel ws={ws} setWs={setWs} />
+            <section className="panel">
+              {step === "test" ? (
+                <TestsEditor ws={ws} setWs={setWs} drafts={drafts} setDrafts={setDrafts} saveRules={saveRules} onError={setError} />
+              ) : (
+                <FixItPanel ws={ws} setWs={setWs} />
+              )}
             </section>
 
-            <section className={`studio-middle ${pane !== "test" ? "hide-narrow" : ""}`}>
+            <section className="studio-middle">
               <GateCard ws={ws} gate={gate} latest={latest} latestV={latestV} running={running} runBlocked={runBlocked} busy={busy} onRun={runTests} error={error} />
+              {step === "test" && tested && !running && (
+                <button className="btn ghost next-step" onClick={() => goTo("fix")}>Read your score, then go to 2 · Fix it →</button>
+              )}
               <div className="panel">
                 <div className="seg">
-                  <button className={middle === "tests" ? "on" : ""} onClick={() => setMiddle("tests")}>1 · Write the tests</button>
-                  <button className={middle === "results" ? "on" : ""} onClick={() => setMiddle("results")}>2 · Results</button>
-                  <button className={middle === "compare" ? "on" : ""} onClick={() => setMiddle("compare")}>3 · Compare</button>
+                  <button className={middle === "results" ? "on" : ""} onClick={() => setMiddle("results")}>Results</button>
+                  <button className={middle === "compare" ? "on" : ""} onClick={() => setMiddle("compare")}>Compare</button>
                 </div>
-                {middle === "tests" && <TestsEditor ws={ws} setWs={setWs} drafts={drafts} setDrafts={setDrafts} saveRules={saveRules} onError={setError} />}
                 {middle === "results" && <ResultsPanel ws={ws} run={shown ?? latest} latestId={latest?.id ?? null} onPickRun={onPickRun} />}
                 {middle === "compare" && <CompareView ws={ws} />}
               </div>
             </section>
           </div>
         </section>
-      </div>
-    </>
-  );
-}
-
-/* ——— Demo: participants watch, and think ——— */
-
-function WatchView({ ws, header }: { ws: Workspace; header: Header }) {
-  return (
-    <>
-      {header(copy.demoWatch)}
-      <div className="center-card" style={{ maxWidth: 560 }}>
-        <div className="card">
-          <p className="think" style={{ marginTop: 0 }}>{copy.demoThink}</p>
-          <ol className="plain-list">
-            {ws.questions.map((q) => <li key={q.key}>&ldquo;{q.text}&rdquo;</li>)}
-          </ol>
-          <p className="small muted" style={{ marginBottom: 0 }}>Keep this page open — it will change by itself when it&apos;s your turn.</p>
-        </div>
       </div>
     </>
   );
@@ -342,7 +365,8 @@ function TestsEditor({
 
   return (
     <>
-      <p className="lead">{copy.testIt.lead}</p>
+      <h2 className="panel-title">Test it · your rules</h2>
+      <p className="small muted" style={{ margin: "0 0 8px" }}>{suiteLead(ws.questions)}</p>
       <p className="steps-label">For each question…</p>
       <ol className="steps">{copy.testIt.steps.map((s) => <li key={s}>{s}</li>)}</ol>
       {ws.questions.map((q, i) => {
@@ -350,6 +374,11 @@ function TestsEditor({
         return (
           <div key={q.key} className="question">
             <div className="q-text"><span className="q-num">{i + 1}</span><span>&ldquo;{q.text}&rdquo;</span></div>
+            {q.category && (
+              <div className="q-from">
+                {q.source === "mine" ? "You reported this" : "Someone in the room reported this"} as <strong>{targetLabel(q.category)}</strong>
+              </div>
+            )}
             <label className="check">
               <input type="checkbox" checked={ws.tiers[q.key] === "must"} onChange={(e) => setTier(q.key, e.target.checked ? "must" : "ok")} />
               must not fail
@@ -362,7 +391,7 @@ function TestsEditor({
                   className="input"
                   value={rule}
                   maxLength={ws.limits.maxChars}
-                  placeholder="it …"
+                  placeholder={testRuleFor(q.category) ? `e.g. ${testRuleFor(q.category)}` : "it …"}
                   aria-label={`Rule ${ri + 1} for question ${i + 1}`}
                   ref={(el) => { if (el && focusNext.current === `${q.key}:${ri}`) { el.focus(); focusNext.current = null; } }}
                   onChange={(e) => setDrafts((d) => ({ ...d, [q.key]: list.map((r, j) => (j === ri ? e.target.value : r)) }))}
@@ -396,12 +425,30 @@ function TestsEditor({
 
 /* ——— Results ——— */
 
-function coaching(run: Run, questions: Question[], isFirst: boolean): string {
+/** Where this person's tests came from, in one line. */
+function suiteLead(qs: TestQuestion[]): string {
+  const mine = qs.filter((q) => q.source === "mine").length;
+  const room = qs.filter((q) => q.source === "room").length;
+  if (!mine && !room) return "Nobody reported anything in Activity 1 yet, so these are the four questions from the slides.";
+  const parts = [mine && `${mine} you reported`, room && `${room} from the rest of the room`].filter(Boolean).join(" and ");
+  return `These are real customer messages from Activity 1 — ${parts}. This is what you broke; now decide what a good answer would have been.`;
+}
+
+/** The tests this run actually used. Falls back to the current suite for runs saved before. */
+const runQuestions = (ws: Workspace, run: Run): TestQuestion[] => (run.questions?.length ? run.questions : ws.questions);
+
+/** The questions' answers — attack tests are counted separately everywhere. */
+const questionAnswers = (run: Run) => run.results.filter((r) => !r.question_key.startsWith("attack:"));
+
+function coaching(run: Run, questions: TestQuestion[], isFirst: boolean): string {
+  const unscored = run.results.filter((r) => r.reason === copy.markerFailed || r.reason === copy.aiBusy).length;
+  if (unscored)
+    return `${unscored} ${unscored === 1 ? "answer" : "answers"} couldn't be scored — the AI or the marker was too busy to reply. That's the test, not your bot: this score is too low. Test again in a moment.`;
   const n = run.runs_per_test;
   const must = questions.filter((q) => run.tiers[q.key] === "must");
   const passes = (k: string) => run.results.filter((r) => r.question_key === k && r.pass).length;
   const missedMust = must.filter((q) => passes(q.key) < n).map((q) => questions.indexOf(q) + 1);
-  const blocked = run.results.filter((r) => r.blocked_by && r.blocked_by !== "azure_filter").length;
+  const blocked = questionAnswers(run).filter((r) => r.blocked_by && r.blocked_by !== "azure_filter").length;
   if (!must.length) return "Nothing was marked must not fail, so one total hides which failures matter. Which ones would hurt the restaurant?";
   if (blocked >= run.max * 0.4 && run.total < run.max) return `Your checks blocked ${blocked} of ${run.max} answers, and some tests failed. It's safe — but is it still useful? Open a blocked FAIL and read what the customer got.`;
   if (missedMust.length) return `Question ${missedMust.join(" and ")} must not fail — and didn't clear the bar. Open one of its FAILs: is the bot wrong, or is your rule wrong?`;
@@ -414,7 +461,7 @@ function coaching(run: Run, questions: Question[], isFirst: boolean): string {
 
 function ResultsPanel({ ws, run, latestId, onPickRun, readOnly }: { ws: Workspace; run: Run | null; latestId: number | null; onPickRun: (id: number) => void; readOnly?: boolean }) {
   const [open, setOpen] = useState<Result | null>(null);
-  const Q = ws.questions.length;
+  const Q = run ? runQuestions(ws, run).length : ws.questions.length;
   const v = run ? versionOf(ws, run.id) : null;
 
   return (
@@ -453,19 +500,22 @@ function ResultsPanel({ ws, run, latestId, onPickRun, readOnly }: { ws: Workspac
                 {run.status === "interrupted" && <span className="badge must">cut short</span>}
               </div>
               <p className="small muted" style={{ margin: "0 0 4px" }}>
-                Checks blocked <strong>{run.results.filter((r) => r.blocked_by && r.blocked_by !== "azure_filter").length}</strong> of {run.results.length} answers.
+                Checks blocked <strong>{questionAnswers(run).filter((r) => r.blocked_by && r.blocked_by !== "azure_filter").length}</strong> of {questionAnswers(run).length} answers.
               </p>
-              <p className="think">{coaching(run, ws.questions, ws.history[0]?.id === run.id)}</p>
+              <p className="think">{coaching(run, runQuestions(ws, run), ws.history[0]?.id === run.id)}</p>
             </>
           )}
 
+          <p className="tiny muted" style={{ margin: "0 0 6px" }}>
+            The bar is how many runs have to pass: <strong>every</strong> run on a must-not-fail question, 80% of them on the rest.
+          </p>
           <div className="results-scroll">
             <table className="results">
               <thead>
-                <tr><th>Q</th><th>rules</th><th /><th>runs</th><th>score · the bar</th></tr>
+                <tr><th>Q</th><th /><th>runs</th><th title="How many runs have to pass: every run for must-not-fail, 80% for the rest.">score · the bar</th></tr>
               </thead>
               <tbody>
-                {ws.questions.map((q, qi) => {
+                {runQuestions(ws, run).map((q, qi) => {
                   const n = run.runs_per_test;
                   const tier = run.tiers[q.key] ?? "ok";
                   const rs = run.results.filter((r) => r.question_key === q.key);
@@ -473,24 +523,29 @@ function ResultsPanel({ ws, run, latestId, onPickRun, readOnly }: { ws: Workspac
                   const bar = barFor(tier, n);
                   return (
                     <tr key={q.key}>
-                      <td><strong>{qi + 1}</strong></td>
-                      <td>{run.rules[q.key]?.length ?? 0}</td>
+                      <td>
+                        <strong>{qi + 1}</strong>
+                        <span className="tiny muted rule-count">{run.rules[q.key]?.length ?? 0} {run.rules[q.key]?.length === 1 ? "rule" : "rules"}</span>
+                      </td>
                       <td><span className={`badge ${tier === "must" ? "must" : ""}`}>{tierLabel(tier)}</span></td>
                       <td>
                         <div className="cells">
                           {Array.from({ length: n }, (_, i) => {
                             const r = rs.find((x) => x.iteration === i + 1);
                             return r ? (
-                              <button key={i} className={`cell ${r.pass ? "pass" : "fail"}`} onClick={() => setOpen(r)} title="See the answer and why">{r.pass ? "PASS" : "FAIL"}</button>
+                              <button key={i} className={`cell ${r.pass ? "pass" : "fail"}`} onClick={() => setOpen(r)} title={`${r.pass ? "PASS" : "FAIL"} — see the answer and why`}>
+                                <span className="cell-full">{r.pass ? "PASS" : "FAIL"}</span>
+                                <span className="cell-short" aria-hidden="true">{r.pass ? "✓" : "✗"}</span>
+                              </button>
                             ) : (
                               <span key={i} className="cell pending">…</span>
                             );
                           })}
                         </div>
                       </td>
-                      <td>
+                      <td className="score-cell">
                         <span style={{ fontWeight: 700 }}>{passes}/{n}</span>
-                        <span className="tiny muted"> · {bar}/{n} </span>
+                        <span className="tiny muted bar-of"> · {bar}/{n} </span>
                         {rs.length === n && (passes >= bar ? <span className="bar-ok">✓</span> : <span className="bar-no">✗</span>)}
                       </td>
                     </tr>
@@ -499,21 +554,26 @@ function ResultsPanel({ ws, run, latestId, onPickRun, readOnly }: { ws: Workspac
               </tbody>
             </table>
           </div>
-          {(run.attacks_max > 0 || run.status === "running") && (
+          {run.attacks_max > 0 && (
             <>
               <h3 className="results-sub">Attack tests</h3>
-              <p className="tiny muted" style={{ margin: "0 0 6px" }}>One attack per thing people broke in Activity 1, each tried {ws.attacks.length ? Math.round((run.attacks_max || ws.attacks.length * 3) / ws.attacks.length) : 3} times. PASS means the bot didn&apos;t fall for it.</p>
+              <p className="tiny muted" style={{ margin: "0 0 6px" }}>One attack per thing people broke in Activity 1, each tried {ws.attackRuns} times. PASS means the bot didn&apos;t fall for it.
+                {ws.foundInActivity1.length > 0 && <> The ones you found yourself are marked.</>}</p>
               <div className="results-scroll">
                 <table className="results">
                   <thead><tr><th>attack</th><th>tries</th><th>stopped</th></tr></thead>
                   <tbody>
                     {ws.attacks.map((a) => {
                       const rs = run.results.filter((r) => r.question_key === a.key);
-                      const tries = Math.max(3, rs.length);
+                      const tries = Math.max(ws.attackRuns, rs.length);
                       const held = rs.filter((r) => r.pass).length;
                       return (
                         <tr key={a.key}>
-                          <td><strong>{targetLabel(a.target)}</strong><span className="tiny muted" style={{ display: "block" }}>&ldquo;{a.message.length > 60 ? `${a.message.slice(0, 60)}…` : a.message}&rdquo;</span></td>
+                          <td>
+                            <strong>{targetLabel(a.target)}</strong>
+                            {ws.foundInActivity1.includes(a.target) && <span className="you-found" title="You reported this one in Activity 1">you found this</span>}
+                            <span className="tiny muted" style={{ display: "block" }}>&ldquo;{a.message.length > 60 ? `${a.message.slice(0, 60)}…` : a.message}&rdquo;</span>
+                          </td>
                           <td>
                             <div className="cells">
                               {Array.from({ length: tries }, (_, i) => {
@@ -570,7 +630,7 @@ function ResultsPanel({ ws, run, latestId, onPickRun, readOnly }: { ws: Workspac
       {open && run && (
         <Drawer
           result={open} run={run} onClose={() => setOpen(null)}
-          question={ws.attacks.find((a) => a.key === open.question_key)?.message ?? ws.questions.find((q) => q.key === open.question_key)?.text ?? ""}
+          question={ws.attacks.find((a) => a.key === open.question_key)?.message ?? runQuestions(ws, run!).find((q) => q.key === open.question_key)?.text ?? ""}
           attack={ws.attacks.find((a) => a.key === open.question_key)}
         />
       )}
@@ -604,7 +664,7 @@ function CompareView({ ws }: { ws: Workspace }) {
   );
   if (!a || !b) return <div className="row wrap">Compare {picker(aId, setAId, "First version")} with {picker(bId, setBId, "Second version")}</div>;
 
-  const keys = ws.questions.map((q) => q.key);
+  const keys = runQuestions(ws, b).map((q) => q.key);
   const passes = (r: Run, k: string) => r.results.filter((x) => x.question_key === k && x.pass).length;
   const blocked = (r: Run) => r.results.filter((x) => x.blocked_by && x.blocked_by !== "azure_filter").length;
   const changes = describeChanges({ config: a.config, rules: a.rules, tiers: a.tiers }, { config: b.config, rules: b.rules, tiers: b.tiers }, keys);
@@ -633,7 +693,7 @@ function CompareView({ ws }: { ws: Workspace }) {
             <tr><th>Question</th><th /><th>v{vOf(a.id)}</th><th>v{vOf(b.id)}</th><th>change</th></tr>
           </thead>
           <tbody>
-            {ws.questions.map((q, i) => {
+            {runQuestions(ws, b).map((q, i) => {
               const tier = b.tiers[q.key] ?? "ok";
               const pa = passes(a, q.key), pb = passes(b, q.key);
               return (
@@ -771,10 +831,15 @@ function FixItPanel({ ws, setWs }: { ws: Workspace; setWs: React.Dispatch<React.
   return (
     <>
       <h2 className="panel-title">Fix it · your draft</h2>
-      <p className="lead">{copy.fixIt.lead}</p>
-      <p className="steps-label">Every time you change something…</p>
-      <ol className="steps">{copy.fixIt.steps.map((s) => <li key={s}>{s}</li>)}</ol>
-      <p className="highlight">{copy.fixIt.oneAtATime}</p>
+      {ws.history.length ? (
+        <>
+          <p className="steps-label">Every time you change something…</p>
+          <ol className="steps">{copy.fixIt.steps.map((s) => <li key={s}>{s}</li>)}</ol>
+          <p className="highlight">{copy.fixIt.oneAtATime}</p>
+        </>
+      ) : (
+        <p className="small muted" style={{ margin: "0 0 10px" }}>This is the bot the restaurant is running today. Test it first — then come back here and change it.</p>
+      )}
 
       <div className="control">
         <div className="row"><span className="control-label grow">1 · {c.prompt.label}</span>{saved === "prompt" && <span className="saved">saved</span>}</div>
@@ -811,7 +876,14 @@ function FixItPanel({ ws, setWs }: { ws: Workspace; setWs: React.Dispatch<React.
             </details>
           )}
         </div>
-        <button className="linkbtn" onClick={() => { setPrompt(ws.naivePrompt); save({ system_prompt: ws.naivePrompt }, "prompt"); }}>restore original</button>
+        <button
+          className="linkbtn"
+          onClick={() => {
+            if (prompt.trim() !== ws.naivePrompt.trim() && !confirm("Put the original prompt back? Your rewrite is lost.")) return;
+            setPrompt(ws.naivePrompt);
+            save({ system_prompt: ws.naivePrompt }, "prompt");
+          }}
+        >restore original</button>
       </div>
 
       {toggles.map(({ key, list, t, num }) => (

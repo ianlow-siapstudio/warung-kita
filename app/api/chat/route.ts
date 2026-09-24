@@ -10,7 +10,7 @@ import { getBotModel, getPhase } from "@/lib/settings";
 
 export const dynamic = "force-dynamic";
 
-const open = (phase: string) => ["activity1", "demo", "activity2"].includes(phase);
+const open = (phase: string) => ["activity1", "activity2"].includes(phase);
 
 export function GET(req: NextRequest) {
   return withParticipant(req, (p) => {

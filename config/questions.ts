@@ -1,5 +1,9 @@
-// The four Activity 2 questions — word for word from the deck ("Decide what a good answer must do"
-// and "Some of these are not allowed to fail"). Do not let them drift.
+// The deck's four questions, word for word ("Decide what a good answer must do" / "Some of these
+// are not allowed to fail"). Do not let them drift.
+//
+// These are now the FALLBACK suite. Normally Activity 2 tests real customer messages the room
+// reported in Activity 1 — see lib/questions.ts. These four are used only when nobody has reported
+// anything yet, so the activity still works if the phase is opened early or straight after a reset.
 
 export type Tier = "must" | "ok";
 export type Question = {

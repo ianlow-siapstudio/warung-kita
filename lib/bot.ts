@@ -2,7 +2,8 @@ import { copy } from "@/config/copy";
 import { llm, parseJson } from "./llm";
 import type { BotConfig } from "./participants";
 import { composeSystemPrompt, inputCheckPrompt, outputCheckPrompt } from "./prompts";
-import { measuringProvider, type ChatMessage, type ProviderName } from "./providers";
+import { type ChatMessage, type ProviderName } from "./providers";
+import { measuringProvider } from "./settings";
 import { db } from "./db";
 
 export type BlockedBy = "question_check" | "one_job" | "answer_check" | "azure_filter" | null;

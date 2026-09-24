@@ -1,13 +1,14 @@
 import type { NextRequest } from "next/server";
 import { db } from "@/lib/db";
 import { body, fail, json, withAdmin } from "@/lib/http";
-import { activeRunId } from "@/lib/runs";
+import { activeRunId, closeStaleRuns } from "@/lib/runs";
 
 export async function POST(req: NextRequest) {
   const { confirm = "", full = false } = await body<{ confirm: string; full: boolean }>(req);
   return withAdmin(req, () => {
     if (confirm !== (full ? "FULL RESET" : "RESET")) return fail(`Type ${full ? "FULL RESET" : "RESET"} to confirm.`);
     const d = db();
+    closeStaleRuns();
     const running = d.prepare("SELECT participant_id FROM runs WHERE status='running'").all() as { participant_id: number }[];
     if (running.some((r) => activeRunId(r.participant_id))) return fail("Some runs are still going — wait for them to finish.");
     d.transaction(() => {

@@ -8,15 +8,15 @@ export const copy = {
 
   // Activity 02 · Round 1 · Test it
   testIt: {
-    lead: "Four questions are already in the app. You write the rules.",
+    lead: "These are the messages that broke it in Activity 1. You write the rules.",
     steps: [
       "Write down what a good answer must do",
-      "Mark the two that must never fail",
+      "Mark the ones that must never fail",
       "Run it, and read what came back",
       "Write your score on the card",
     ],
     hint: "Write what it must do. Not the exact words.",
-    noMust: "Nothing is marked yet. Which two would hurt the restaurant most if the bot got them wrong?",
+    noMust: "Nothing is marked yet. Which of these would hurt the restaurant most if the bot got them wrong?",
   },
 
   // Activity 02 · Round 2 · Fix it
@@ -61,6 +61,10 @@ export const copy = {
     help: "Stricter checks block more bad answers — and more good ones. Only matters when a check is on.",
     options: { relaxed: "Relaxed", balanced: "Balanced", strict: "Strict" },
   },
+  // Shown in place of a marking reason when the test itself failed, not the bot.
+  markerFailed: "The marker didn't answer, so this one couldn't be scored. Test again.",
+  aiBusy: "The AI was too busy to answer this one, so it couldn't be scored. Test again in a moment.",
+  aiSilent: "The AI didn't answer in time, so this one counts as a fail.",
   // Not one of the slide's five — an extra dial for people who finish early.
   creativity: {
     label: "Extra · How creative the answers are",
@@ -73,8 +77,6 @@ export const copy = {
   },
   checksConfirm: "The prompt tells the AI what to do. The checks confirm it did.",
 
-  demoWatch: "Watch the screen — you'll run your own tests in a moment.",
-  demoThink: "While you watch: for each question, what would a good answer have to do?",
 
   wrapup: "So, what did you ship? A prototype, or a product?",
   wrapupFooter: "If the answer to any of these is no, it is not a product yet.",

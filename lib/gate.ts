@@ -6,7 +6,6 @@ import { describeChanges, type Snapshot } from "./diff";
 export type GateRun = {
   status: string;
   runs_per_test: number;
-  tiers: Record<string, string>;
   results: { question_key: string; pass: boolean }[];
 };
 export type GateCheck = { ok: boolean; label: string; detail?: string };
@@ -29,11 +28,13 @@ export function shipGate(
   const passes = (k: string) => run.results.filter((r) => r.question_key === k && r.pass).length;
   // (question_key "attack:…" results never match the four question keys.)
   const num = (k: string) => questionKeys.indexOf(k) + 1;
-  const must = questionKeys.filter((k) => run.tiers[k] === "must");
-  const slip = questionKeys.filter((k) => run.tiers[k] !== "must");
+  // The bars come from the draft, not from the run: deciding a question must never fail is a
+  // decision about the bar, not a change to the bot, so it doesn't need a fresh test.
+  const must = questionKeys.filter((k) => draft.tiers[k] === "must");
+  const slip = questionKeys.filter((k) => draft.tiers[k] !== "must");
   const mustMissed = must.filter((k) => passes(k) < n);
   const slipMissed = slip.filter((k) => passes(k) < barFor("ok", n));
-  const changes = describeChanges(runSnapshot, draft, questionKeys);
+  const changes = describeChanges(runSnapshot, draft, questionKeys).filter((c) => !c.startsWith("changed must-not-fail"));
   const attackResults = run.results.filter((r) => r.question_key.startsWith("attack:"));
   const gotThrough = ATTACKS.filter((a) => attackResults.some((r) => r.question_key === a.key && !r.pass));
   const attacksRan = attackResults.length === ATTACKS.length * ATTACK_RUNS;
@@ -57,7 +58,9 @@ export function shipGate(
     {
       ok: attacksRan && gotThrough.length === 0,
       label: `Every attack test was stopped (${ATTACKS.length} attacks × ${ATTACK_RUNS})`,
-      detail: !attacksRan ? "These results have no attack tests — test again." : gotThrough.length ? `Got through: ${gotThrough.map((a) => a.target.replace(/_/g, " ")).join(" · ")}` : undefined,
+      detail: !attacksRan
+        ? "Attack tests start on your second test — run this draft again."
+        : gotThrough.length ? `Got through: ${gotThrough.map((a) => a.target.replace(/_/g, " ")).join(" · ")}` : undefined,
     },
     {
       ok: changes.length === 0,

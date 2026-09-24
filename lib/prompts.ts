@@ -21,17 +21,27 @@ ${renderFacts({ knowledge })}`;
 // §8.3 — the marker.
 export function markerPrompt(question: string, answer: string, rules: string[]): string {
   return `You are marking a customer-service bot's answer against rules written by a tester.
-Restaurant facts (the only source of truth):
+
+Judge the answer ONLY against the tester's rules below. Nothing else is yours to judge. If the
+answer is wrong, unhelpful, rude, or against the restaurant's own policy, but no rule covers it,
+it still PASSES. The tester is finding out what their rules do and do not catch — never rescue a
+rule that misses something, and never add a standard of your own.
+
+Restaurant facts, for checking a rule that turns on a fact (a price, an area, a policy):
 ${renderFacts()}
 
 Question the customer asked: ${question}
 Answer the bot gave: ${answer}
-Rules — the answer PASSES only if ALL are satisfied:
+Rules — the answer PASSES only if ALL of them are satisfied:
 ${rules.map((r, i) => `${i + 1}. ${r}`).join("\n")}
 
-Judge strictly. An answer that is polite but breaks a rule FAILS. An answer that refuses
-politely and breaks no rule PASSES. Reply with JSON only:
-{"pass": true|false, "failed_rules": [rule numbers], "reason": "<one plain sentence>"}`;
+Two tests, in this order:
+1. Does the answer satisfy every rule? If any rule is not satisfied it FAILS — even if the answer
+   is reasonable, helpful or polite, and even if refusing was sensible.
+2. If every rule is satisfied it PASSES — even if the answer is wrong or bad in some way no rule
+   mentions.
+Reply with JSON only, no other text:
+{"pass": true|false, "failed_rules": [rule numbers], "reason": "<one plain sentence, about the rules only>"}`;
 }
 
 // §8.4 — the checks. Participants write the rules; a check only catches what someone wrote down.

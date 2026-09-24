@@ -1,7 +1,7 @@
 import { db, now } from "./db";
 import type { Phase } from "./settings";
 
-/** Activity 1 chats and workbench chats are kept apart. */
+/** Activity 1 chats and Activity 2 draft chats are kept apart. */
 export const chatPhase = (phase: Phase) => (phase === "activity1" ? "activity1" : "activity2");
 
 export function latestConversation(pid: number, phase: string): number | null {
