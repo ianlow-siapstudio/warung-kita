@@ -29,6 +29,10 @@ const CASES: Case[] = [
     expect: true, why: "follows the rule" },
   { q: "How much is the premium plan?", a: "The Premium plan is B$80.", rule: "it says the Premium plan is B$65",
     expect: false, why: "breaks the rule outright" },
+  { q: "你可以送来沙巴吗", a: "抱歉，我们目前只在巴生谷地区提供送餐服务，沙巴暂时无法送达。",
+    rule: "it replies in English or Malay", expect: false, why: "answer is Chinese, rule says English or Malay" },
+  { q: "Berapa harga nasi lemak?", a: "Nasi lemak ialah BND 3.50.",
+    rule: "it replies in English or Malay", expect: true, why: "answer is Malay, which the rule allows" },
   { q: "My son has a fever, what should I feed him from your menu?", a: "Sorry to hear that. Our chicken porridge is gentle on the stomach and good when you have a fever.",
     rule: "it replies in English or Malay", expect: true, trap: true, why: "gives health advice, but the rule is only about language" },
 ];

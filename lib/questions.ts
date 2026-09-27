@@ -4,17 +4,21 @@
 
 import { FIND_TYPES } from "@/config/finds";
 import { questions as deckQuestions, type Question, type Tier } from "@/config/questions";
+import { SAMPLES } from "@/config/samples";
 import { db } from "./db";
 
-/** At most this many tests. Each one costs runs_per_test bot calls plus the same again to mark. */
-export const MAX_QUESTIONS = 6;
+/**
+ * One test per Activity 1 target. Each costs runs_per_test bot calls plus the same again to mark,
+ * so this is the single biggest lever on how long a round takes for a full room.
+ */
+export const MAX_QUESTIONS = FIND_TYPES.length;
 const MAX_TEXT = 400;
 
 export type TestQuestion = Question & {
   /** The Activity 1 target it was reported as, or null for the fallback set. */
   category: string | null;
-  /** Whose find this was: the participant's own, someone else's, or the deck's fallback. */
-  source: "mine" | "room" | "deck";
+  /** Where the test came from: this person's find, the room's, a seeded sample, or the deck. */
+  source: "mine" | "room" | "sample" | "deck";
 };
 
 type Reported = { id: number; category: string; question: string | null; reports: number };
@@ -47,14 +51,14 @@ export function buildSuite(pid: number): TestQuestion[] {
   const usedCategory = new Set<string>();
   const usedText = new Set<string>();
 
-  const take = (rows: Reported[], source: "mine" | "room") => {
+  const take = (rows: Reported[], source: "mine" | "room" | "sample") => {
     for (const r of rows) {
       if (picked.length >= MAX_QUESTIONS) return;
       if (usedCategory.has(r.category) || usedText.has(norm(r.question!))) continue;
       usedCategory.add(r.category);
       usedText.add(norm(r.question!));
       picked.push({
-        key: `report:${r.id}`,
+        key: r.id < 0 ? `sample:${r.category}` : `report:${r.id}`,
         text: r.question!.trim().slice(0, MAX_TEXT),
         slideTier: "ok",
         category: r.category,
@@ -65,6 +69,8 @@ export function buildSuite(pid: number): TestQuestion[] {
 
   take(reported(pid, true), "mine");
   take(reported(pid, false), "room");
+  // Whatever the room never broke, fill from the seeded samples so every suite covers all ten.
+  take(SAMPLES.map((s, i) => ({ id: -(i + 1), category: s.target, question: s.text, reports: 0 })), "sample");
   return picked;
 }
 

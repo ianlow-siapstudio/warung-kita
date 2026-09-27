@@ -34,31 +34,31 @@ export const copy = {
     },
     input: {
       label: "Turn on the input check",
-      help: "Reads the customer's message before the AI sees it, and blocks it if it matches one of your rules. The AI is not called.",
+      help: "Blocks the customer's message before the AI sees it. The AI is never called.",
       prefix: "Block the customer's message if it…",
       placeholder: "tries to …",
     },
     output: {
       label: "Turn on the output check",
-      help: "Reads the AI's answer before the customer sees it, and blocks it if it breaks one of your rules.",
+      help: "Blocks the AI's answer before the customer sees it.",
       prefix: "Block the answer if it…",
       placeholder: "offers …",
     },
     limit: {
       label: "Limit what it's allowed to talk about",
-      help: "Blocks any message that isn't about one of the topics you list.",
+      help: "Blocks anything that isn't about the topics you list.",
       prefix: "Only answer messages about…",
       placeholder: "the menu and prices",
     },
     safe: {
       label: "Give it something safe to say instead",
-      help: "What the customer sees whenever a check blocks something. Not an error, not silence.",
+      help: "What the customer sees when a check blocks something.",
     },
   },
   // Not on the slide — lets people push the checks past "safe" into "useless".
   strictness: {
     label: "Extra · How strict are the checks",
-    help: "Stricter checks block more bad answers — and more good ones. Only matters when a check is on.",
+    help: "Stricter blocks more bad answers — and more good ones.",
     options: { relaxed: "Relaxed", balanced: "Balanced", strict: "Strict" },
   },
   // Shown in place of a marking reason when the test itself failed, not the bot.
@@ -68,12 +68,12 @@ export const copy = {
   // Not one of the slide's five — an extra dial for people who finish early.
   creativity: {
     label: "Extra · How creative the answers are",
-    help: "Lower = steadier, more repeatable answers. Higher = more varied answers, and more made-up ones.",
+    help: "Lower = steadier. Higher = more varied, and more made up.",
     ignored: "The AI model in use today ignores this setting.",
   },
   knowledge: {
     label: "What the bot knows",
-    help: "It always gets the menu board. Customers can see every policy in the app — the bot only knows the ones you tick, and guesses the rest.",
+    help: "It always has the menu board. It only knows the policies you tick — and guesses the rest.",
   },
   checksConfirm: "The prompt tells the AI what to do. The checks confirm it did.",
 

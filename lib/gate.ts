@@ -10,7 +10,11 @@ export type GateRun = {
 };
 export type GateCheck = { ok: boolean; label: string; detail?: string };
 
-export const barFor = (tier: string, n: number) => (tier === "must" ? n : Math.ceil(n * 0.8));
+/**
+ * How many of the n runs have to pass. "Must not fail" means all of them; everything else is 80%,
+ * but never all of them — at 3 runs ⌈80%⌉ is 3, which would make the two tiers mean the same thing.
+ */
+export const barFor = (tier: string, n: number) => (tier === "must" ? n : Math.min(n - 1, Math.ceil(n * 0.8)));
 
 export function shipGate(
   run: GateRun | null,

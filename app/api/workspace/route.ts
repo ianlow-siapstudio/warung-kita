@@ -1,8 +1,9 @@
 import type { NextRequest } from "next/server";
 import { MAX_RULES, MAX_RULE_CHARS } from "@/config/questions";
 import { getQuestions } from "@/lib/questions";
+import { referenceFix } from "@/config/reference";
 import { json, withParticipant } from "@/lib/http";
-import { ensureStarterRules, getConfig, getRules, getTiers } from "@/lib/participants";
+import { ensureStarterRules, getConfig, getRules, getTiers, PRESENTER } from "@/lib/participants";
 import { ATTACKS, ATTACK_RUNS } from "@/config/attacks";
 import { KNOWLEDGE, renderFacts, renderKnowledge } from "@/config/restaurant";
 import { naiveInstructions } from "@/lib/prompts";
@@ -23,6 +24,8 @@ export function GET(req: NextRequest) {
       questions: getQuestions(p.id),
       limits: { maxRules: MAX_RULES, maxChars: MAX_RULE_CHARS },
       config: getConfig(p.id),
+      // The presenter's "here's one way to do it" — participants work it out themselves.
+      referenceFix: p.name_key === PRESENTER ? referenceFix() : null,
       rules: getRules(p.id),
       tiers: getTiers(p.id),
       naivePrompt: naiveInstructions(),

@@ -6,7 +6,7 @@ import { FIND_TYPES, testRuleFor } from "@/config/finds";
 import type { Question, Tier } from "@/config/questions";
 
 /** A test: a real message someone reported in Activity 1, or one of the deck's four as a fallback. */
-type TestQuestion = Question & { category: string | null; source: "mine" | "room" | "deck" };
+type TestQuestion = Question & { category: string | null; source: "mine" | "room" | "sample" | "deck" };
 import { api, time } from "@/lib/client";
 import { botChanges, describeChanges, type Snapshot } from "@/lib/diff";
 import { barFor, shipGate } from "@/lib/gate";
@@ -29,6 +29,8 @@ type Workspace = {
   attacks: AttackDef[];
   attackRuns: number;
   foundInActivity1: string[];
+  /** The presenter's worked answer, or null for everyone else. */
+  referenceFix: Partial<Config> | null;
   history: HistoryRow[];
   activeRunId: number | null;
   latestRunId: number | null;
@@ -337,7 +339,7 @@ function GateCard({
 function ChangesLine({ ws, latest }: { ws: Workspace; latest: Run | null }) {
   if (!latest || latest.status === "running") return null;
   const changes = describeChanges({ config: latest.config, rules: latest.rules, tiers: latest.tiers }, { config: ws.config, rules: ws.rules, tiers: ws.tiers }, ws.questions.map((q) => q.key));
-  if (!changes.length) return <p className="changes">Nothing has changed since the last test. Test it again anyway — does the score stay the same?</p>;
+  if (!changes.length) return <p className="changes">Nothing changed since the last test. Run it again — same score?</p>;
   const bot = botChanges(changes);
   return (
     <div className={`changes ${bot.length > 1 ? "warn" : ""}`}>
@@ -376,7 +378,7 @@ function TestsEditor({
             <div className="q-text"><span className="q-num">{i + 1}</span><span>&ldquo;{q.text}&rdquo;</span></div>
             {q.category && (
               <div className="q-from">
-                {q.source === "mine" ? "You reported this" : "Someone in the room reported this"} as <strong>{targetLabel(q.category)}</strong>
+{q.source === "mine" ? "You reported" : q.source === "room" ? "The room reported" : "Sample"} · <strong>{targetLabel(q.category)}</strong>
               </div>
             )}
             <label className="check">
@@ -429,9 +431,10 @@ function TestsEditor({
 function suiteLead(qs: TestQuestion[]): string {
   const mine = qs.filter((q) => q.source === "mine").length;
   const room = qs.filter((q) => q.source === "room").length;
-  if (!mine && !room) return "Nobody reported anything in Activity 1 yet, so these are the four questions from the slides.";
-  const parts = [mine && `${mine} you reported`, room && `${room} from the rest of the room`].filter(Boolean).join(" and ");
-  return `These are real customer messages from Activity 1 — ${parts}. This is what you broke; now decide what a good answer would have been.`;
+  const sample = qs.filter((q) => q.source === "sample").length;
+  if (!mine && !room && !sample) return "Nothing was reported in Activity 1, so these are the slides' four questions.";
+  const parts = [mine && `${mine} yours`, room && `${room} from the room`, sample && `${sample} samples`].filter(Boolean);
+  return `One test per target — ${parts.join(", ")}.`;
 }
 
 /** The tests this run actually used. Falls back to the current suite for runs saved before. */
@@ -443,20 +446,20 @@ const questionAnswers = (run: Run) => run.results.filter((r) => !r.question_key.
 function coaching(run: Run, questions: TestQuestion[], isFirst: boolean): string {
   const unscored = run.results.filter((r) => r.reason === copy.markerFailed || r.reason === copy.aiBusy).length;
   if (unscored)
-    return `${unscored} ${unscored === 1 ? "answer" : "answers"} couldn't be scored — the AI or the marker was too busy to reply. That's the test, not your bot: this score is too low. Test again in a moment.`;
+    return `${unscored} ${unscored === 1 ? "answer" : "answers"} couldn't be scored — the AI was too busy. That's the test, not your bot. Run it again.`;
   const n = run.runs_per_test;
   const must = questions.filter((q) => run.tiers[q.key] === "must");
   const passes = (k: string) => run.results.filter((r) => r.question_key === k && r.pass).length;
   const missedMust = must.filter((q) => passes(q.key) < n).map((q) => questions.indexOf(q) + 1);
   const blocked = questionAnswers(run).filter((r) => r.blocked_by && r.blocked_by !== "azure_filter").length;
-  if (!must.length) return "Nothing was marked must not fail, so one total hides which failures matter. Which ones would hurt the restaurant?";
-  if (blocked >= run.max * 0.4 && run.total < run.max) return `Your checks blocked ${blocked} of ${run.max} answers, and some tests failed. It's safe — but is it still useful? Open a blocked FAIL and read what the customer got.`;
-  if (missedMust.length) return `Question ${missedMust.join(" and ")} must not fail — and didn't clear the bar. Open one of its FAILs: is the bot wrong, or is your rule wrong?`;
+  if (!must.length) return "Nothing is marked must not fail. Which of these would hurt the restaurant most?";
+  if (blocked >= run.max * 0.4 && run.total < run.max) return `Your checks blocked ${blocked} of ${run.max} answers. It's safe — but still useful? Open a blocked FAIL.`;
+  if (missedMust.length) return `Question ${missedMust.join(" and ")} must not fail, and didn't. Open a FAIL: is the bot wrong, or your rule?`;
   const through = run.attacks_max - run.attacks_held;
-  if (run.attacks_max && through > 0) return `${through} of ${run.attacks_max} attack tries got through. Open one: what would have stopped it — a clearer prompt, the right policy, or a check rule?`;
-  if (run.total === run.max && isFirst) return "Everything passed on the first try. Before you celebrate: are your rules strict enough? Open a PASS — do you agree with it?";
-  if (run.total === run.max) return "Every run passed. Would it still pass if a real customer asked a different way? Try it in the customer preview.";
-  return "Your must-not-fail questions cleared the bar, and some others slipped. Are you happy with that trade?";
+  if (run.attacks_max && through > 0) return `${through} of ${run.attacks_max} attacks got through. Open one — what would have stopped it?`;
+  if (run.total === run.max && isFirst) return "All passed first try. Are your rules strict enough? Open a PASS — do you agree?";
+  if (run.total === run.max) return "Every run passed. Would it, if a customer asked differently? Try the app.";
+  return "Must-not-fail cleared the bar; others slipped. Happy with that trade?";
 }
 
 function ResultsPanel({ ws, run, latestId, onPickRun, readOnly }: { ws: Workspace; run: Run | null; latestId: number | null; onPickRun: (id: number) => void; readOnly?: boolean }) {
@@ -507,7 +510,7 @@ function ResultsPanel({ ws, run, latestId, onPickRun, readOnly }: { ws: Workspac
           )}
 
           <p className="tiny muted" style={{ margin: "0 0 6px" }}>
-            The bar is how many runs have to pass: <strong>every</strong> run on a must-not-fail question, 80% of them on the rest.
+            The bar: <strong>every</strong> run if it must not fail, 80% otherwise.
           </p>
           <div className="results-scroll">
             <table className="results">
@@ -557,8 +560,7 @@ function ResultsPanel({ ws, run, latestId, onPickRun, readOnly }: { ws: Workspac
           {run.attacks_max > 0 && (
             <>
               <h3 className="results-sub">Attack tests</h3>
-              <p className="tiny muted" style={{ margin: "0 0 6px" }}>One attack per thing people broke in Activity 1, each tried {ws.attackRuns} times. PASS means the bot didn&apos;t fall for it.
-                {ws.foundInActivity1.length > 0 && <> The ones you found yourself are marked.</>}</p>
+              <p className="tiny muted" style={{ margin: "0 0 6px" }}>One attack per target, {ws.attackRuns} tries each.{ws.foundInActivity1.length > 0 && <> Yours are marked.</>}</p>
               <div className="results-scroll">
                 <table className="results">
                   <thead><tr><th>attack</th><th>tries</th><th>stopped</th></tr></thead>
@@ -595,10 +597,7 @@ function ResultsPanel({ ws, run, latestId, onPickRun, readOnly }: { ws: Workspac
               </div>
             </>
           )}
-          <p className="tiny muted" style={{ margin: "8px 0 0" }}>
-            Click any PASS or FAIL to see the answer and why it was marked that way.
-            {run.runs_per_test !== 10 && <> Today each question runs {run.runs_per_test} times instead of 10 — same idea, less waiting.</>}
-          </p>
+          <p className="tiny muted" style={{ margin: "8px 0 0" }}>Click any result to read the answer.</p>
         </>
       )}
 
@@ -614,9 +613,9 @@ function ResultsPanel({ ws, run, latestId, onPickRun, readOnly }: { ws: Workspac
                 <span className="score">v{i + 1}</span>
                 <span className="score">{h.status === "running" ? "…" : `${h.total ?? 0}/${h.max}`}</span>
                 <span className="grow small">
-                  {h.summary}{h.blocked > 0 && <span className="muted"> · {h.blocked} blocked</span>}
+                  {h.changes === null ? h.summary : h.changes.length ? `changed: ${h.changes.join(" · ")}` : "same setup, tested again"}
                   {h.attacks_max > 0 && h.status !== "running" && <span className="muted"> · attacks {h.attacks_held}/{h.attacks_max}</span>}
-                  {h.changes && <span className="tiny muted" style={{ display: "block" }}>{h.changes.length ? `changed: ${h.changes.join(" · ")}` : "nothing changed — same setup, tested again"}</span>}
+                  {h.blocked > 0 && <span className="muted"> · {h.blocked} blocked</span>}
                 </span>
                 {h.id === ws.publishedRunId && <span className="badge live">live</span>}
                 <span className="badge model">{MODEL_LABEL[h.bot_model] ?? h.bot_model}</span>
@@ -838,7 +837,21 @@ function FixItPanel({ ws, setWs }: { ws: Workspace; setWs: React.Dispatch<React.
           <p className="highlight">{copy.fixIt.oneAtATime}</p>
         </>
       ) : (
-        <p className="small muted" style={{ margin: "0 0 10px" }}>This is the bot the restaurant is running today. Test it first — then come back here and change it.</p>
+        <p className="small muted" style={{ margin: "0 0 10px" }}>Test it first, then change it here.</p>
+      )}
+      {ws.referenceFix && (
+        <button
+          className="btn ghost"
+          style={{ width: "100%", marginBottom: 10 }}
+          onClick={() => {
+            if (!confirm("Replace your draft with the worked answer? Anything you changed here is lost.")) return;
+            const fix = ws.referenceFix!;
+            setPrompt(String(fix.system_prompt ?? ""));
+            save(fix, "reference");
+          }}
+        >
+          Show a worked answer
+        </button>
       )}
 
       <div className="control">
