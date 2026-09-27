@@ -155,10 +155,21 @@ export function ensureStarterRules(pid: number) {
   const has = db().prepare("SELECT 1 FROM rules WHERE participant_id=? LIMIT 1").get(pid);
   const hasTiers = db().prepare("SELECT 1 FROM tiers WHERE participant_id=? LIMIT 1").get(pid);
   if (has || hasTiers) return;
-  // One worked example, as the slide shows — the rest is theirs to write.
-  const first = suite[0];
-  const example = first?.exampleRule ?? testRuleFor(first?.category ?? null);
-  if (first && example) saveRules(pid, first.key, [example]);
+  const row = db().prepare("SELECT name_key FROM participants WHERE id=?").get(pid) as { name_key: string } | undefined;
+  if (row?.name_key === PRESENTER) {
+    // The presenter is demonstrating, not doing the exercise: every rule is written already so the
+    // first test is one click. Which ones must never fail is still theirs to decide in front of
+    // the room — that is the beat the slide asks for.
+    for (const q of suite) {
+      const rule = testRuleFor(q.category) || q.exampleRule;
+      if (rule) saveRules(pid, q.key, [rule]);
+    }
+  } else {
+    // One worked example, as the slide shows — the rest is theirs to write.
+    const first = suite[0];
+    const example = first?.exampleRule ?? testRuleFor(first?.category ?? null);
+    if (first && example) saveRules(pid, first.key, [example]);
+  }
   for (const q of suite) setTier(pid, q.key, "ok");
 }
 
