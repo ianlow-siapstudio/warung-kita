@@ -510,7 +510,7 @@ function ResultsPanel({ ws, run, latestId, onPickRun, readOnly }: { ws: Workspac
           )}
 
           <p className="tiny muted" style={{ margin: "0 0 6px" }}>
-            The bar: <strong>every</strong> run if it must not fail, 80% otherwise.
+            The bar: <strong>every</strong> run if it must not fail, {barFor("ok", run.runs_per_test)} of {run.runs_per_test} otherwise.
           </p>
           <div className="results-scroll">
             <table className="results">
