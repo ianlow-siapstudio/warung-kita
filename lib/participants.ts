@@ -199,10 +199,10 @@ export function describeConfig(c: BotConfig): string {
   const edited = c.system_prompt.trim() !== naiveInstructions().trim();
   const extras: string[] = [];
   const count = (n: number, one: string) => `${n} ${one}${n === 1 ? "" : "s"}`;
-  if (c.knowledge?.length) extras.push(count(c.knowledge.length, "policy section"));
-  if (c.question_check) extras.push(`input check (${count(c.input_rules?.length ?? 0, "rule")})`);
-  if (c.answer_check) extras.push(`output check (${count(c.output_rules?.length ?? 0, "rule")})`);
-  if (c.one_job) extras.push(`topic limit (${count(c.topics?.length ?? 0, "topic")})`);
+  if (c.knowledge?.length) extras.push(`${c.knowledge.length} policies`);
+  if (c.question_check) extras.push(`input check (${c.input_rules?.length ?? 0})`);
+  if (c.answer_check) extras.push(`output check (${c.output_rules?.length ?? 0})`);
+  if (c.one_job) extras.push(`topic limit (${c.topics?.length ?? 0})`);
   if ((c.question_check || c.answer_check || c.one_job) && (c.strictness ?? "balanced") !== "balanced") extras.push(`${c.strictness} checks`);
   if ((c.temperature ?? DEFAULT_TEMPERATURE) !== DEFAULT_TEMPERATURE) extras.push(`creativity ${c.temperature}`);
   if (!extras.length) return edited ? "prompt only" : "original prompt";

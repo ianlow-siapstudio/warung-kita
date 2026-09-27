@@ -59,7 +59,7 @@ function ReportsCard({ reports, name, onSignOut }: { reports: Reports | null; na
         <h2>My reports</h2>
         <span className="small muted">{name} · <button className="linkbtn" onClick={onSignOut}>not you?</button></span>
       </div>
-      <p className="reports-task">Chat with the assistant in <strong>Help</strong> and try to break it. Tap <strong>report</strong> under any reply that went wrong.</p>
+      <p className="reports-task">Chat in <strong>Help</strong> and try to break it. Tap <strong>report</strong> under any bad reply.</p>
       <p className="reports-lead">
         {reports?.me
           ? <>You&apos;re <strong>#{reports.me.rank}</strong> of {reports.people} · {reports.me.total} {reports.me.total === 1 ? "report" : "reports"}</>

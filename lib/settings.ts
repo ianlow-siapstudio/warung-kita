@@ -6,7 +6,8 @@ export type Phase = (typeof PHASES)[number];
 
 const DEFAULTS: Record<string, string> = {
   phase: "closed",
-  runs_per_test: "5",
+  // Ten tests × 3 runs is what six × 5 used to cost, and keeps a full room moving.
+  runs_per_test: "3",
 };
 
 export function getSetting(key: string): string {
@@ -29,7 +30,7 @@ export function measuringProvider(): ProviderName {
 }
 
 export const getPhase = () => getSetting("phase") as Phase;
-export const getRunsPerTest = () => Number(getSetting("runs_per_test")) || 5;
+export const getRunsPerTest = () => Number(getSetting("runs_per_test")) || 3;
 /** The admin's pick. Before one is made, Azure — or the offline mock if Azure has no keys. */
 export function getBotModel(): ProviderName {
   const row = db().prepare("SELECT value FROM settings WHERE key='bot_model'").get() as { value: ProviderName } | undefined;

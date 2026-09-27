@@ -40,7 +40,7 @@ export async function respond(
   if (answer.filtered) return { text: copy.aiDeclined, blockedBy: "azure_filter", original: null, botModel };
 
   if (config.answer_check && config.output_rules.length) {
-    const res = await llm("answer_check", measuring, [{ role: "user", content: outputCheckPrompt(question, answer.text, { blockRules: config.output_rules, strictness: config.strictness }) }], { owner, json: true, maxTokens: 40 });
+    const res = await llm("answer_check", measuring, [{ role: "user", content: outputCheckPrompt(question, answer.text, { blockRules: config.output_rules, strictness: config.strictness }) }], { owner, json: true, maxTokens: 80 });
     const broken = parseJson<{ breaks?: unknown }>(res.text)?.breaks;
     const block = res.filtered || (Array.isArray(broken) && broken.some((n) => Number(n) >= 1 && Number(n) <= config.output_rules.length));
     if (block) return { text: config.fallback_text, blockedBy: "answer_check", original: answer.text, botModel };

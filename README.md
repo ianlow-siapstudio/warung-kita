@@ -115,13 +115,13 @@ Once unlocked, both rounds stay reachable (fixing means re-testing). Nothing is 
   A check only catches what someone wrote down. *How strict* (relaxed/balanced/strict) and *how creative*
   are extras for overshooting.
 - **The tests are the room's own findings.** When you open Activity 2, each person's suite is drawn
-  from what was reported in Activity 1: up to **6 real customer messages**, one per target, their own
-  reports first and the targets they missed filled in from the rest of the room (`lib/questions.ts`).
+  from what was reported in Activity 1: **one real customer message per target, ten in all** — their own
+  reports first, then the rest of the room's, then seeded samples (`config/samples.ts`) for anything
+  nobody broke, so every suite is always complete (`lib/questions.ts`).
   Each test says who reported it and as what, so Activity 1 visibly becomes Activity 2's test suite.
   The suite is frozen the moment it is drawn, so "before → after" always compares the same tests.
   Expect round 1 to score badly — every test is a message that already broke the bot.
-  If nobody has reported anything (phase opened early, or straight after a reset), it falls back to
-  the deck's four questions in `config/questions.ts`.
+  Every sample was tried against the real bot; the hit rates are in the file.
 - **Runs** — each question 5 times, **plus 10 attack tests** (`config/attacks.ts`) from
   the second test onwards: one per Activity 1 target, 3 tries each, judged by the second AI against a
   precise "the attack succeeds if…". A reply a check blocked counts as stopped (the customer only saw
@@ -159,6 +159,9 @@ own versions. The leaderboard shows what each person shipped.
 | Fonts | The restaurant's headings use Georgia (a "DM Serif Display" stack with no web-font download), so the app makes no outside requests. |
 | Input check vs. topic limit | One AI call behind both, and neither has any built-in behaviour: the input check blocks only what the participant's rules say, the topic limit only allows the topics they list. A check with no rules does nothing. |
 | Runs per test | 3 / 5 / 10 in the dropdown. The "can slip" bar is 80% rounded up (4/5, 8/10, 3/3). |
+| Worked answer | Signed in as `presenter`, **Fix it** carries a *Show a worked answer* button that applies a known-good draft in one go (`config/reference.ts`): rewritten prompt, all seven policy sections, three input rules, six output rules, creativity 0.2. Measured on ILMU with a suite of ten: **43/50 and 29/30 attacks** — better, and still short of the publish gate. Participants never see the button. |
+| Runs per test | Ships at **3**, with ten tests. Measured on a 30-person room: round 1 **290 s**, round 2 **338 s**, 4,052 calls, 2 of 900 answers unscored. Ten tests at 5 runs is better signal but round 1 alone takes 477 s — change it in the console if the room is moving fast. |
+| The bar | "Must not fail" is every run; everything else is 80% **but never every run** — at 3 runs ⌈80%⌉ would be 3 of 3, which is what "must not fail" already means. 5 and 10 runs are unchanged (4 of 5, 8 of 10). |
 | Marker model | The bot and the marker are picked separately in the console. Marking with the model you are testing is a weaker test — it tends to agree with itself — but it is supported, and a whole room on ILMU alone was measured at 0.5% unscored. `npm run marker-check` scores a marker model against ten tricky cases, three of which it must PASS because the tester's rule does not cover the fault. |
 | Calls at once | One queue for the whole room, `MAX_CONCURRENT_CALLS` (default 12). **On ILMU keep it at or below 8** — its endpoint serves 8 concurrent requests correctly and corrupts from 9 onwards, returning a 200 with a truncated body (`{"pass`) and `finish_reason: "stop"`, as if it had answered properly. Verified with plain `fetch` (no SDK, no queue), so it is the endpoint and not this app: 8 in flight × 300 requests = 0 bad, 9 = 63% bad, 12 = 81% bad. Shipped at 4 for margin. A JSON reply that will not parse is retried like any other failed call. The real ceiling is the Azure deployment's tokens-per-minute, not this number — raising it past the quota just trades work for `429`s. Measured against a deployment that sustains ~250k tokens/min, on the older 4-question suite: **round 1, 24 people at once, 73 s and no throttling; round 2, 14 people with checks on, 5.5 min and throttled throughout**. A 6-question suite is about half as much again. Budget ~20 min for round 2 with a full room; if that is too slow, raise the deployment's quota, drop runs-per-test to 3, or run round 2 in two waves. |
 | A garbled reply | ILMU answers 200 with a truncated or repeating body when it is pushed (see above), and says `finish_reason: "stop"` as if it were fine. A JSON reply that will not parse is treated as a failed call, not a failed answer: it is retried, **and the queue halves what it asks of the provider**, earning the capacity back a step at a time after 30 s of clean replies. Measured on a 30-person room started at the catastrophic setting of 12: it eased itself to 2–3 and finished with **0 of 1,527 answers unscored**. At the shipped setting of 4: **1 of 1,560**, with 139 garbled replies retried away. The console counts these apart from errors. |
